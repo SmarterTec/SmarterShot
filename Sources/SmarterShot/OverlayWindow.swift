@@ -7,6 +7,7 @@ final class OverlayWindow: NSPanel {
     private let shot: CaptureController.Shot
     private var trashButton: NSButton!
     private var closeArmed = false
+    private var autoDismissTimer: Timer?
 
     /// All currently visible overlays, oldest first. Index 0 sits at the bottom.
     static var stack: [OverlayWindow] = []
@@ -189,7 +190,18 @@ final class OverlayWindow: NSPanel {
         }
     }
 
+    /// Dismiss this overlay `seconds` from now (used after the user pastes the
+    /// screenshot). The saved file is not affected.
+    func scheduleAutoDismiss(after seconds: TimeInterval) {
+        autoDismissTimer?.invalidate()
+        autoDismissTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
+            self?.dismiss()
+        }
+    }
+
     func dismiss() {
+        autoDismissTimer?.invalidate()
+        PasteWatcher.shared.forget(self)
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.15
             animator().alphaValue = 0
@@ -203,6 +215,7 @@ final class OverlayWindow: NSPanel {
 
     @objc private func copyAction() {
         CaptureController.copyToClipboard(shot)
+        PasteWatcher.shared.noteCopied(overlay: self) // this shot is now the paste target
         // brief pulse to confirm.
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.08

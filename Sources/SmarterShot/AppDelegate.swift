@@ -154,7 +154,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let shot = shot else { return }
         self.lastShot = shot
         CaptureController.copyToClipboard(shot) // auto-copy for instant paste
-        _ = OverlayWindow(shot: shot)
+        let overlay = OverlayWindow(shot: shot)
+        PasteWatcher.shared.noteCopied(overlay: overlay) // watch for ⌘V of this shot
     }
 
     @objc private func captureArea() {
