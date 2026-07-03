@@ -1,0 +1,47 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Dark graphite background gradient -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3A3F4B"/>
+      <stop offset="0.55" stop-color="#262A33"/>
+      <stop offset="1" stop-color="#191B21"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="60" x2="0" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Accent for the crosshair -->
+    <linearGradient id="accent" x1="468" y1="460" x2="556" y2="548" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7AB0FF"/>
+      <stop offset="1" stop-color="#4C8DFF"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#4C8DFF" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <rect x="80" y="72" width="864" height="864" rx="200" ry="200" fill="url(#bg)"/>
+  </g>
+  <rect x="80" y="72" width="864" height="864" rx="200" ry="200" fill="url(#sheen)"/>
+  <rect x="80" y="72" width="864" height="864" rx="200" ry="200" fill="none"
+        stroke="#ffffff" stroke-opacity="0.06" stroke-width="2"/>
+
+  <!-- Capture frame (corner brackets) in white -->
+  <g fill="none" stroke="#F2F4F8" stroke-width="46"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M420 320 H320 V420"/>
+    <path d="M604 320 H704 V420"/>
+    <path d="M420 688 H320 V588"/>
+    <path d="M604 688 H704 V588"/>
+  </g>
+  <!-- Crosshair in accent blue with a soft glow -->
+  <g fill="none" stroke="url(#accent)" stroke-width="46"
+     stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+    <path d="M468 504 H556"/>
+    <path d="M512 460 V548"/>
+  </g>
+</svg>

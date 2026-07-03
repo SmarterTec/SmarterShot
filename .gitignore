@@ -1,0 +1,15 @@
+# Build output
+.build/
+dist/
+
+# Signing material (never commit keys or certs)
+signing/
+*.p12
+*.pem
+*.keychain-db
+
+# macOS
+.DS_Store
+
+# Loose sound experiments (only bundled/ ships)
+sounds/*.wav

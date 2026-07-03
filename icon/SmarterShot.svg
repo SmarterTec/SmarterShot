@@ -1,0 +1,45 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Background gradient: bright blue (top-left) to indigo (bottom-right) -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6EA8FE"/>
+      <stop offset="0.55" stop-color="#4C6EF5"/>
+      <stop offset="1" stop-color="#3B4FD1"/>
+    </linearGradient>
+    <!-- Soft top highlight for a subtle glassy sheen -->
+    <linearGradient id="sheen" x1="0" y1="60" x2="0" y2="560" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Drop shadow for the squircle -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#1a2a66" flood-opacity="0.35"/>
+    </filter>
+    <!-- Gentle shadow so the white glyph reads on any gradient -->
+    <filter id="glyphShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#20305f" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle background -->
+  <g filter="url(#shadow)">
+    <rect x="80" y="72" width="864" height="864" rx="200" ry="200" fill="url(#bg)"/>
+  </g>
+  <rect x="80" y="72" width="864" height="864" rx="200" ry="200" fill="url(#sheen)"/>
+
+  <!-- Capture frame (corner brackets) + crosshair -->
+  <g fill="none" stroke="#ffffff" stroke-width="46"
+     stroke-linecap="round" stroke-linejoin="round" filter="url(#glyphShadow)">
+    <!-- top-left -->
+    <path d="M420 320 H320 V420"/>
+    <!-- top-right -->
+    <path d="M604 320 H704 V420"/>
+    <!-- bottom-left -->
+    <path d="M420 688 H320 V588"/>
+    <!-- bottom-right -->
+    <path d="M604 688 H704 V588"/>
+    <!-- crosshair -->
+    <path d="M468 504 H556"/>
+    <path d="M512 460 V548"/>
+  </g>
+</svg>
