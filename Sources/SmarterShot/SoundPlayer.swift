@@ -1,26 +1,9 @@
 import AppKit
+import SmarterShotCore
 
 /// Plays the capture sound the user picked in Settings. Custom sounds are
 /// bundled WAVs in Resources/Sounds; two special options defer to macOS.
-enum CaptureSound {
-    /// Menu order for the Settings dropdown.
-    static let options = ["Bubble", "Blip", "Clack", "Shutter", systemDefault, none]
-    static let systemDefault = "System Default"
-    static let none = "None"
-    static let defaultName = systemDefault
-
-    /// True when this option is one of our bundled WAVs (i.e. not a macOS one).
-    static func isCustom(_ name: String) -> Bool {
-        name != systemDefault && name != none
-    }
-
-    /// Whether the `screencapture` tool's own shutter should be silenced (-x).
-    /// We silence it whenever we're not deferring to the macOS default.
-    static func silenceSystemShutter(_ name: String) -> Bool {
-        name != systemDefault
-    }
-}
-
+/// The sound *names* and flag logic live in `CaptureSound` in SmarterShotCore.
 enum SoundPlayer {
     private static var cache: [String: NSSound] = [:]
 

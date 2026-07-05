@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import SmarterShotCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static let githubURL = URL(string: "https://github.com/SmarterTec/SmarterShot")!
@@ -20,7 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Register with the Screen Recording privacy system so SmarterShot appears
         // in the list and can be granted; shows the prompt if not yet determined.
-        if !CGPreflightScreenCaptureAccess() {
+        let hasCapture = CGPreflightScreenCaptureAccess()
+        CaptureController.log("LAUNCH ScreenCapture preflight=\(hasCapture)")
+        if !hasCapture {
             CGRequestScreenCaptureAccess()
         }
 
@@ -175,12 +178,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ScreenRecorder.shared.stop()
             return
         }
-        SelectionOverlay.present(mode: mode) { [weak self] regionArgs in
-            guard let self = self, let regionArgs = regionArgs else { return } // cancelled
-            ScreenRecorder.shared.start(regionArgs: regionArgs) { [weak self] shot in
+        SelectionOverlay.present(mode: mode) { [weak self] target in
+            guard let self = self else { return }
+            guard let target = target else {
+                CaptureController.log("REC cancelled (no region selected)")
+                return
+            }
+            ScreenRecorder.shared.start(target: target) { [weak self] shot in
                 RecordingIndicator.shared.hide()
+                RecordingDimOverlay.shared.hide()
                 self?.present(shot)
             }
+            // Spotlight the recorded region for the whole recording.
+            RecordingDimOverlay.shared.show(for: target)
             RecordingIndicator.shared.show { ScreenRecorder.shared.stop() }
         }
     }

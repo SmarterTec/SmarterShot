@@ -4,6 +4,30 @@ All notable changes to SmarterShot. This project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- **Recording spotlight** — while recording, the rest of the screen stays dimmed
+  around a red-bordered cut-out over what's being captured. It follows the window
+  if you move it, clicks pass straight through, and it never appears in the recording.
+- **Esc stops a recording**, alongside the stop pill and pressing the hotkey again.
+- **Test suite** — `./test.sh` runs headless unit checks (no Xcode required) for
+  window picking, coordinate conversion, recording arguments, overlay invariants,
+  and capture-sound rules.
+
+### Changed
+- **Much sharper recordings** — recording now uses ScreenCaptureKit (the same
+  engine as ⌘⇧5): native pixel resolution, 60 fps H.264. macOS 14 and earlier
+  keep the previous recorder.
+- `make-app.sh` signs with the stable local identity by default, so macOS
+  remembers the Screen Recording permission across rebuilds.
+
+### Fixed
+- **Window recording couldn't be started by clicking.** Clicks on the highlighted
+  window fell through the fully transparent highlight cut-out (macOS hit-tests
+  transparent windows per pixel) and background-app clicks were swallowed as
+  activation clicks — so the pick never fired.
+- **Dragging a fresh screenshot preview needed an extra click** before the drag
+  would start; the first click now begins the drag immediately.
+- Window picking no longer fails when macOS omits window owner names.
 
 ## [1.1.0] - 2026-07-03
 ### Added

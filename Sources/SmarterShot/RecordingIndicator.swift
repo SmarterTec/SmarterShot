@@ -10,6 +10,8 @@ final class RecordingIndicator {
     private var timer: Timer?
     private var seconds = 0
     private var onStop: (() -> Void)?
+    private var escMonitorGlobal: Any?
+    private var escMonitorLocal: Any?
 
     func show(onStop: @escaping () -> Void) {
         hide()
@@ -58,12 +60,24 @@ final class RecordingIndicator {
 
         panel.contentView = bg
 
-        if let screen = NSScreen.main {
+        if let screen = NSScreen.main ?? NSScreen.screens.first {
             let vf = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(x: vf.midX - width / 2, y: vf.maxY - height - 12))
         }
         panel.orderFrontRegardless()
         window = panel
+        CaptureController.log("INDICATOR shown")
+
+        // Esc stops the recording from anywhere. A global monitor catches it
+        // while another app is focused (the usual case mid-recording); the local
+        // monitor covers the case where our own panel/app has focus.
+        escMonitorGlobal = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            if e.keyCode == 53 { self?.onStop?() }
+        }
+        escMonitorLocal = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            if e.keyCode == 53 { self?.onStop?(); return nil }
+            return e
+        }
 
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
@@ -74,6 +88,8 @@ final class RecordingIndicator {
 
     func hide() {
         timer?.invalidate(); timer = nil
+        if let m = escMonitorGlobal { NSEvent.removeMonitor(m); escMonitorGlobal = nil }
+        if let m = escMonitorLocal { NSEvent.removeMonitor(m); escMonitorLocal = nil }
         window?.orderOut(nil); window = nil
         onStop = nil
     }

@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import SmarterShotCore
 
 /// Runs the built-in macOS `screencapture` tool interactively so we get
 /// Apple's native crosshair / window selection UI for free, then saves the

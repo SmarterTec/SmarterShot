@@ -15,6 +15,14 @@ final class DraggableImageView: NSImageView, NSDraggingSource {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
+    // The overlay is a non-activating panel in a menu-bar (LSUIElement) app, so
+    // it's usually neither key nor in the active app when the user reaches for
+    // the thumbnail. Without this, AppKit treats the first click as a window
+    // "activation" click and swallows it instead of delivering it — you'd have
+    // to click a few times before a drag would start. Returning true delivers
+    // that very first mouseDown straight to us so the drag begins immediately.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     func draggingSession(_ session: NSDraggingSession,
                          sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         return [.copy, .generic]

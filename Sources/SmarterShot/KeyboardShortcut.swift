@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import SmarterShotCore
 
 /// A global keyboard shortcut, stored as a Carbon key code + modifier mask so it
 /// can be re-registered, plus a human-readable key label for display.

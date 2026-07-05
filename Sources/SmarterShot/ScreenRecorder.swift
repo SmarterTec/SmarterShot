@@ -1,60 +1,79 @@
 import AppKit
+import SmarterShotCore
 
-/// Runs a long-running `screencapture -v …` recording that we start with an
-/// explicit region (a screen rect via -R, or a window id via -l) and stop by
-/// sending SIGINT, which makes screencapture finalize the .mov.
+/// Facade over the two recording backends:
+/// - macOS 15+: ScreenCaptureKit (`SCKRecorder`) — native pixels, 60 fps.
+/// - older:    long-running `screencapture -v` stopped with SIGINT.
 final class ScreenRecorder {
     static let shared = ScreenRecorder()
 
-    private var task: Process?
-    private var dest: URL?
+    private var legacyTask: Process?
+    private var sckRecorder: Any? // SCKRecorder; typed Any so the class loads pre-macOS 15
     private var onFinish: ((CaptureController.Shot?) -> Void)?
 
-    var isRecording: Bool { task != nil }
+    var isRecording: Bool { legacyTask != nil || sckRecorder != nil }
 
-    /// - Parameter regionArgs: e.g. ["-R","x,y,w,h"] for an area, or ["-l","<id>"] for a window.
-    func start(regionArgs: [String], onFinish: @escaping (CaptureController.Shot?) -> Void) {
-        guard task == nil else { return }
+    func start(target: RecordingTarget, onFinish: @escaping (CaptureController.Shot?) -> Void) {
+        guard !isRecording else { return }
         self.onFinish = onFinish
         let dest = CaptureController.uniqueDestination(ext: "mov")
-        self.dest = dest
 
+        if #available(macOS 15.0, *) {
+            let rec = SCKRecorder()
+            sckRecorder = rec
+            rec.start(target: target, dest: dest) { [weak self] fileURL in
+                guard let self = self else { return }
+                self.sckRecorder = nil
+                self.deliver(fileURL)
+            }
+        } else {
+            startLegacy(target: target, dest: dest)
+        }
+    }
+
+    private func startLegacy(target: RecordingTarget, dest: URL) {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        proc.arguments = ["-v"] + regionArgs + [dest.path]
-        CaptureController.log("REC START \(proc.arguments!.joined(separator: " "))")
+        proc.arguments = ["-v"] + target.screencaptureArgs + [dest.path]
+        CaptureController.log("REC START legacy \(proc.arguments!.joined(separator: " "))")
 
         proc.terminationHandler = { [weak self] p in
-            CaptureController.log("REC END status=\(p.terminationStatus)")
+            CaptureController.log("REC END legacy status=\(p.terminationStatus)")
             DispatchQueue.main.async {
                 guard let self = self else { return }
-                self.task = nil
-                let exists = FileManager.default.fileExists(atPath: dest.path)
-                guard exists else { self.deliver(nil); return }
-                let poster = CaptureController.posterFrame(dest) ?? CaptureController.videoPlaceholder()
-                self.deliver(CaptureController.Shot(url: dest, image: poster, isVideo: true))
+                self.legacyTask = nil
+                self.deliver(dest)
             }
         }
 
         do {
             try proc.run()
-            task = proc
+            legacyTask = proc
         } catch {
             CaptureController.log("REC FAILED to launch: \(error)")
-            task = nil
+            legacyTask = nil
             deliver(nil)
         }
     }
 
-    /// Stops recording; screencapture finalizes the file on SIGINT.
+    /// Stops recording; the backend finalizes the file and the finish callback
+    /// delivers it.
     func stop() {
-        task?.interrupt()
+        if #available(macOS 15.0, *), let rec = sckRecorder as? SCKRecorder {
+            rec.stop()
+            return
+        }
+        legacyTask?.interrupt()
     }
 
-    private func deliver(_ shot: CaptureController.Shot?) {
+    private func deliver(_ url: URL?) {
         let cb = onFinish
         onFinish = nil
-        dest = nil
-        cb?(shot)
+        guard let url = url, FileManager.default.fileExists(atPath: url.path) else {
+            cb?(nil)
+            return
+        }
+        let poster = CaptureController.posterFrame(url) ?? CaptureController.videoPlaceholder()
+        cb?(CaptureController.Shot(url: url, image: poster, isVideo: true))
     }
 }

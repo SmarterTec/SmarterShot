@@ -1,5 +1,6 @@
 import AppKit
 import ServiceManagement
+import SmarterShotCore
 
 /// A single window used both for first-launch onboarding and for later editing
 /// of the capture shortcuts and preferences. It only stores the user's choices
