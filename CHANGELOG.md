@@ -4,6 +4,8 @@ All notable changes to SmarterShot. This project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.2.0] - 2026-07-06
 ### Added
 - **Recording spotlight** — while recording, the rest of the screen stays dimmed
   around a red-bordered cut-out over what's being captured. It follows the window
