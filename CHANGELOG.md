@@ -4,6 +4,8 @@ All notable changes to SmarterShot. This project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [1.3.0] - 2026-07-08
 ### Added
 - **Record system audio** — screen recordings now capture the Mac's audio
   (app, video, game sound) by default. Toggle it from the menu bar with **Record
