@@ -17,21 +17,28 @@ final class ScreenRecorder {
         guard !isRecording else { return }
         self.onFinish = onFinish
         let dest = CaptureController.uniqueDestination(ext: "mov")
+        let captureAudio = ShortcutStore.recordAudio
 
         if #available(macOS 15.0, *) {
             let rec = SCKRecorder()
             sckRecorder = rec
-            rec.start(target: target, dest: dest) { [weak self] fileURL in
+            rec.start(target: target, dest: dest, captureAudio: captureAudio) { [weak self] fileURL in
                 guard let self = self else { return }
                 self.sckRecorder = nil
                 self.deliver(fileURL)
             }
         } else {
-            startLegacy(target: target, dest: dest)
+            startLegacy(target: target, dest: dest, captureAudio: captureAudio)
         }
     }
 
-    private func startLegacy(target: RecordingTarget, dest: URL) {
+    private func startLegacy(target: RecordingTarget, dest: URL, captureAudio: Bool) {
+        // The legacy `screencapture -v` tool can only capture the microphone
+        // (-g), not system audio, so system-audio recording is unavailable on
+        // macOS 14 and earlier; record video only there.
+        if captureAudio {
+            CaptureController.log("REC legacy: system audio unsupported (macOS < 15), recording video only")
+        }
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         proc.arguments = ["-v"] + target.screencaptureArgs + [dest.path]

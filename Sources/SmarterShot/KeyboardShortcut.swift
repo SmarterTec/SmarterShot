@@ -102,6 +102,16 @@ enum ShortcutStore {
         set { defaults.set(newValue, forKey: soundKey) }
     }
 
+    private static let recordAudioKey = "recordSystemAudio"
+
+    /// Whether to capture system (app) audio while recording video. On by
+    /// default. `object(forKey:)` distinguishes "never set" from an explicit
+    /// false, so the default stays true until the user turns it off.
+    static var recordAudio: Bool {
+        get { defaults.object(forKey: recordAudioKey) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: recordAudioKey) }
+    }
+
     private static func load(_ key: String) -> KeyboardShortcut? {
         guard let data = defaults.data(forKey: key) else { return nil }
         return try? JSONDecoder().decode(KeyboardShortcut.self, from: data)

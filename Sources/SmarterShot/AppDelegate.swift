@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowMenuItem: NSMenuItem!
     private var recordAreaMenuItem: NSMenuItem!
     private var recordWindowMenuItem: NSMenuItem!
+    private var recordAudioMenuItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Register with the Screen Recording privacy system so SmarterShot appears
@@ -58,6 +59,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         recordAreaMenuItem = NSMenuItem(title: "Record Area", action: #selector(recordArea), keyEquivalent: "")
         recordWindowMenuItem = NSMenuItem(title: "Record Window", action: #selector(recordWindow), keyEquivalent: "")
         [areaMenuItem, windowMenuItem, recordAreaMenuItem, recordWindowMenuItem].forEach { menu.addItem($0) }
+
+        // System-audio toggle for recordings (on by default). A checkmark shows
+        // the current state; toggling persists it for the next recording.
+        recordAudioMenuItem = NSMenuItem(title: "Record System Audio",
+                                         action: #selector(toggleRecordAudio), keyEquivalent: "")
+        recordAudioMenuItem.state = ShortcutStore.recordAudio ? .on : .off
+        recordAudioMenuItem.toolTip = "Include the Mac's audio (app, video, game sound) in screen recordings"
+        menu.addItem(recordAudioMenuItem)
+
         menu.addItem(withTitle: "Pin Last Screenshot", action: #selector(pinLast), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
@@ -171,6 +181,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func recordArea() { beginRecording(mode: .area) }
     @objc private func recordWindow() { beginRecording(mode: .window) }
+
+    @objc private func toggleRecordAudio() {
+        ShortcutStore.recordAudio.toggle()
+        recordAudioMenuItem.state = ShortcutStore.recordAudio ? .on : .off
+    }
 
     private func beginRecording(mode: SelectionOverlay.Mode) {
         // If already recording, the hotkey/menu acts as a stop toggle.

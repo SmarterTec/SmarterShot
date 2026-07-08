@@ -12,13 +12,18 @@ final class SCKRecorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
     private var stream: SCStream?
     private var dest: URL?
     private var completion: ((URL?) -> Void)?
+    private var captureAudio = false
     private var stopRequested = false
     private var finished = false
 
-    /// Starts recording `target` into `dest`. `completion` fires exactly once,
-    /// on the main queue, with the finalized file URL (nil on failure/cancel).
-    func start(target: RecordingTarget, dest: URL, completion: @escaping (URL?) -> Void) {
+    /// Starts recording `target` into `dest`. When `captureAudio` is true the
+    /// Mac's system audio is mixed into the file (our own process audio is
+    /// always excluded). `completion` fires exactly once, on the main queue,
+    /// with the finalized file URL (nil on failure/cancel).
+    func start(target: RecordingTarget, dest: URL, captureAudio: Bool,
+               completion: @escaping (URL?) -> Void) {
         self.dest = dest
+        self.captureAudio = captureAudio
         self.completion = completion
 
         SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { [weak self] content, error in
@@ -41,6 +46,10 @@ final class SCKRecorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         config.showsCursor = true
         config.captureResolution = .best
+        // System (app) audio. Always exclude our own process so the capture
+        // sound / UI clicks never leak into the recording.
+        config.capturesAudio = captureAudio
+        config.excludesCurrentProcessAudio = true
 
         let filter: SCContentFilter
         let sizePoints: CGSize
@@ -93,7 +102,8 @@ final class SCKRecorder: NSObject, SCStreamDelegate, SCRecordingOutputDelegate {
             return
         }
         self.stream = stream
-        CaptureController.log("REC sck starting \(config.width)x\(config.height) (@\(scale)x, 60fps h264)")
+        CaptureController.log("REC sck starting \(config.width)x\(config.height) "
+            + "(@\(scale)x, 60fps h264, audio=\(captureAudio))")
         stream.startCapture { [weak self] error in
             DispatchQueue.main.async {
                 guard let self = self else { return }
