@@ -4,6 +4,9 @@ All notable changes to SmarterShot. This project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+### Added
+- The **Record system audio** setting is now also in the Settings window (under
+  Capture sound), kept in sync with the menu-bar toggle.
 
 ## [1.3.0] - 2026-07-08
 ### Added

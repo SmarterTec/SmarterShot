@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 import SmarterShotCore
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static let githubURL = URL(string: "https://github.com/SmarterTec/SmarterShot")!
 
     private var statusItem: NSStatusItem!
@@ -76,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Help / View on GitHub", action: #selector(openGitHub), keyEquivalent: "")
         menu.addItem(withTitle: "Quit SmarterShot", action: #selector(quit), keyEquivalent: "q")
         for item in menu.items where item.action != nil { item.target = self }
+        menu.delegate = self // keep toggles in sync with Settings changes
         statusItem.menu = menu
     }
 
@@ -184,6 +185,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleRecordAudio() {
         ShortcutStore.recordAudio.toggle()
+        recordAudioMenuItem.state = ShortcutStore.recordAudio ? .on : .off
+    }
+
+    // Refresh toggle states from storage each time the menu opens, so the
+    // checkmark reflects changes made in the Settings window (and vice versa).
+    func menuNeedsUpdate(_ menu: NSMenu) {
         recordAudioMenuItem.state = ShortcutStore.recordAudio ? .on : .off
     }
 

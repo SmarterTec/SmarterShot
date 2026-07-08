@@ -18,6 +18,7 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
     private var launchCheckbox: NSButton!
     private var savePathField: NSTextField!
     private var soundPopup: NSPopUpButton!
+    private var recordAudioCheckbox: NSButton!
     private var finished = false
 
     init(mode: Mode, onApply: @escaping () -> Void) {
@@ -42,7 +43,7 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
     // MARK: - Building
 
     private func buildWindow() {
-        let width: CGFloat = 500, height: CGFloat = 540
+        let width: CGFloat = 500, height: CGFloat = 574
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
                           styleMask: [.titled, .closable],
                           backing: .buffered, defer: false)
@@ -119,7 +120,16 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
         soundPopup.target = self
         soundPopup.action = #selector(soundChanged)
         content.addSubview(soundPopup)
-        y -= 44
+        y -= 40
+
+        // Record system audio (on by default). Mirrors the menu-bar toggle.
+        recordAudioCheckbox = NSButton(checkboxWithTitle: "Record system audio in screen recordings",
+                                       target: self, action: #selector(toggleRecordAudio))
+        recordAudioCheckbox.state = ShortcutStore.recordAudio ? .on : .off
+        recordAudioCheckbox.toolTip = "Include the Mac's audio (app, video, game sound) in recordings"
+        recordAudioCheckbox.frame = NSRect(x: pad, y: y - 22, width: width - pad * 2, height: 22)
+        content.addSubview(recordAudioCheckbox)
+        y -= 34
 
         // Conflict tip.
         let tip = wrappingLabel(
@@ -189,6 +199,12 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
                 "Uncheck the shortcut(s) you want to free up",
                 "Click Done, then return to SmarterShot and record ⇧⌘4 or ⇧⌘5",
             ])
+    }
+
+    /// Persists the system-audio choice immediately (the menu-bar checkmark
+    /// re-syncs from the stored value the next time the menu opens).
+    @objc private func toggleRecordAudio() {
+        ShortcutStore.recordAudio = (recordAudioCheckbox.state == .on)
     }
 
     /// Saves the chosen capture sound and plays a preview.
