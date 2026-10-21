@@ -1,10 +1,24 @@
 #!/bin/bash
-# Assembles SmarterShot.app from the compiled binary, ad-hoc signs it.
+# Assembles SmarterShot.app and signs it with the pinned, persistent identity.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP="$ROOT/dist/SmarterShot.app"
 BIN="$ROOT/.build/release/SmarterShot"
+
+# Check before rebuilding or replacing any bundle. Missing/locked identities
+# must never silently produce an ad-hoc-signed update with a new privacy identity.
+SIGN_ID="${SMARTERSHOT_SIGN_ID-$(cat "$ROOT/signing-identity.sha1")}"
+SIGN_KC="${SMARTERSHOT_SIGN_KC:-$HOME/Library/Keychains/login.keychain-db}"
+if [[ ! "$SIGN_ID" =~ ^[[:xdigit:]]{40}$ ]]; then
+    echo "Signing requires the exact 40-character certificate fingerprint; ad-hoc signing is disabled." >&2
+    exit 1
+fi
+if ! security find-identity -v -p codesigning "$SIGN_KC" | grep -Fqi "$SIGN_ID"; then
+    echo "Pinned signing identity $SIGN_ID is unavailable in $SIGN_KC." >&2
+    echo "Unlock the login keychain or restore the existing identity from its encrypted backup. Do not generate a replacement certificate." >&2
+    exit 1
+fi
 
 echo "Building release binary..."
 swift build -c release >/dev/null
@@ -61,31 +75,12 @@ BUILD="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$APP/Contents/Info.plist"
 echo "Version $VERSION (build $BUILD)."
 
-# Signing.
-#
-# By default the app is ad-hoc signed, which works for local personal use.
-#
-# Optionally, sign with a stable local self-signed identity so macOS remembers
-# the Screen Recording permission across rebuilds. To use it, set these env vars:
-#   SMARTERSHOT_SIGN_ID   name of a code-signing identity in the keychain below
-#   SMARTERSHOT_SIGN_KC   path to that keychain (default: smartershot-signing)
-#   SMARTERSHOT_SIGN_PW   password to unlock that keychain
-# No credentials are hard-coded here.
-# Defaults to the local self-signed identity so macOS keeps the Screen Recording
-# permission across rebuilds. Override or set to "" to force ad-hoc. On machines
-# without this keychain/identity the guard below falls back to ad-hoc anyway.
-SIGN_ID="${SMARTERSHOT_SIGN_ID-SmarterShot Self Signed}"
-SIGN_KC="${SMARTERSHOT_SIGN_KC:-$HOME/Library/Keychains/smartershot-signing.keychain-db}"
-SIGN_PW="${SMARTERSHOT_SIGN_PW:-}"
-
-if [ -n "$SIGN_ID" ] && [ -f "$SIGN_KC" ] \
-   && security find-identity -p codesigning "$SIGN_KC" | grep -q "$SIGN_ID"; then
-    echo "Code signing with '$SIGN_ID'..."
-    [ -n "$SIGN_PW" ] && security unlock-keychain -p "$SIGN_PW" "$SIGN_KC"
-    codesign --force --deep --sign "$SIGN_ID" --keychain "$SIGN_KC" "$APP"
-else
-    echo "Ad-hoc code signing..."
-    codesign --force --deep --sign - "$APP"
-fi
-
+# A fixed certificate and designated requirement let macOS recognize updates
+# even when the executable changes. Never fall back to an ad-hoc signature.
+echo "Code signing with pinned certificate $SIGN_ID..."
+codesign --force --sign "$SIGN_ID" --keychain "$SIGN_KC" \
+    --identifier app.smartershot.SmarterShot \
+    --requirements "=designated => identifier \"app.smartershot.SmarterShot\" and certificate leaf = H\"$SIGN_ID\"" \
+    "$APP"
+codesign --verify --deep --strict "$APP"
 echo "Done: $APP"

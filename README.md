@@ -54,13 +54,30 @@ ones in **System Settings → Keyboard → Keyboard Shortcuts → Screenshots**
 (uncheck "Save picture of selected area as a file" and "Screenshot and recording
 options"). This is fully reversible.
 
-### Code signing note
-By default `make-app.sh` ad-hoc signs the app, which is fine for local personal
-use. Ad-hoc signatures change every build, so macOS re-asks for Screen Recording
-permission after each rebuild. If that bothers you, sign with a stable local
-self-signed identity by setting `SMARTERSHOT_SIGN_ID` / `SMARTERSHOT_SIGN_KC` /
-`SMARTERSHOT_SIGN_PW` env vars (see the comments in `make-app.sh`). No credentials
-are stored in this repo.
+### Code signing
+`make-app.sh` requires the certificate fingerprint in `signing-identity.sha1`,
+with its private key in the login keychain. The identity is named
+**SmarterShot Local Signing 2026**. Builds fail if this identity is unavailable;
+there is no ad-hoc fallback and no separate signing-keychain password.
+
+Keep the certificate, app identifier, and designated requirement stable across
+updates. Restoring a backup means importing the **same** identity, not generating
+another certificate with the same name. A new identity requires a new screen
+recording approval. Existing macOS privacy reminders can still occur independently.
+
+The encrypted `.p12` recovery file includes the certificate and private key.
+Its password is stored in the login keychain as **SmarterShot signing backup
+password**, account **SmarterShot Local Signing 2026**. Keep a separate copy of
+that password in your password manager for recovery after losing this Mac.
+Never commit the `.p12`, recovery password, or private key. The fingerprint is
+public and safe to commit.
+
+For another signing setup, explicitly set `SMARTERSHOT_SIGN_ID` to an exact
+40-character certificate fingerprint and optionally `SMARTERSHOT_SIGN_KC` to
+its keychain. CI releases must provision the intended identity before building;
+they will fail instead of shipping an ad-hoc-signed release when it is absent.
+Run `./test-signing.sh` after a successful build to check that invalid signing
+configuration fails without replacing the last signed bundle.
 
 ## Roadmap ideas
 OCR (text from a selection via the Vision framework), a lightweight annotation
