@@ -78,16 +78,18 @@ final class OverlayWindow: NSPanel {
         }
         effect.addSubview(thumb)
 
-        // Toolbar: three roomy icon buttons.
+        // Toolbar: quick actions, including the non-destructive markup editor.
         let tools: [(String, String, Selector)] = [
             ("doc.on.doc", "Copy", #selector(copyAction)),
             ("folder", "Reveal", #selector(revealAction)),
             ("pin", "Pin", #selector(pinAction)),
+            ("pencil.tip.crop.circle", "Markup", #selector(markupAction)),
         ]
         let btnW = (panelWidth - pad * 2) / CGFloat(tools.count)
         for (i, tool) in tools.enumerated() {
             let b = makeToolButton(symbol: tool.0, title: tool.1, action: tool.2)
             b.frame = NSRect(x: pad + CGFloat(i) * btnW, y: pad, width: btnW, height: toolbarH - 6)
+            if tool.1 == "Markup" { b.isEnabled = !shot.isVideo }
             effect.addSubview(b)
         }
 
@@ -225,6 +227,16 @@ final class OverlayWindow: NSPanel {
                 ctx.duration = 0.08
                 self.animator().alphaValue = 1.0
             }
+        }
+    }
+
+    @objc private func markupAction() {
+        autoDismissTimer?.invalidate()
+        PasteWatcher.shared.forget(self)
+        _ = MarkupWindow(shot: shot) { edited in
+            CaptureController.copyToClipboard(edited)
+            let overlay = OverlayWindow(shot: edited)
+            PasteWatcher.shared.noteCopied(overlay: overlay)
         }
     }
 

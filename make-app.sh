@@ -74,7 +74,7 @@ echo "Version $VERSION (build $BUILD)."
 # Defaults to the local self-signed identity so macOS keeps the Screen Recording
 # permission across rebuilds. Override or set to "" to force ad-hoc. On machines
 # without this keychain/identity the guard below falls back to ad-hoc anyway.
-SIGN_ID="${SMARTERSHOT_SIGN_ID:-SmarterShot Self Signed}"
+SIGN_ID="${SMARTERSHOT_SIGN_ID-SmarterShot Self Signed}"
 SIGN_KC="${SMARTERSHOT_SIGN_KC:-$HOME/Library/Keychains/smartershot-signing.keychain-db}"
 SIGN_PW="${SMARTERSHOT_SIGN_PW:-}"
 

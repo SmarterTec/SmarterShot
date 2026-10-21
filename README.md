@@ -11,8 +11,16 @@ Built with Swift + AppKit. The whole app is a ~200 KB bundle using ~40 MB RAM.
 - **Screen recording** — record an **area** or **window** to `.mov`, each on its
   own hotkey.
 - **Corner overlay** — after each capture a thumbnail pops into the bottom-left
-  with **Copy**, **Reveal**, and **Pin**. It stays until you dismiss it, and
+  with **Copy**, **Reveal**, **Pin**, and **Markup**. It stays until you dismiss it, and
   multiple captures **stack** upward. The overlay hides while you drag the image out.
+- **Markup** — draw smooth editable curves, freehand strokes, lines, arrows,
+  boxes, ovals, text, and translucent highlights. Choose colors and widths,
+  move shapes with Select, and use Edit Points to reveal handles.
+  Double-click curves, boxes, or ovals to add outline points. Sketch handles stay
+  hidden until Edit Points is enabled. Text edits directly on the image and
+  returns to Select automatically, with font, size, color, and a resize handle. Includes centered image fitting, an animated crop view, undo/redo, pinch-to-zoom, Copy, and
+  Save Copy. Saves a separate PNG beside the original at the original pixel
+  resolution (or selected crop size). Video thumbnails do not offer markup.
 - **Inline discard** — tap the ✕ to reveal a red trash; tap ✕ again to keep, or
   the trash to delete the file.
 - **Customizable in Settings** — set each shortcut, the save folder, the capture
@@ -56,7 +64,13 @@ are stored in this repo.
 
 ## Roadmap ideas
 OCR (text from a selection via the Vision framework), a lightweight annotation
-editor, scrolling capture, and a settings UI for the hotkeys and save folder.
+editor improvements, scrolling capture, and a settings UI for the hotkeys and save folder.
 
 ## License
 MIT
+
+## Markup checks
+
+Run `./test-markup.sh` for the standalone AppKit checks covering curve bending,
+additional points, undo/redo, drawing tools, export dimensions, and cropping.
+An existing image can be opened with `SmarterShot --markup /path/to/image.png`.
