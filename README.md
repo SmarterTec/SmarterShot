@@ -13,14 +13,21 @@ Built with Swift + AppKit. The whole app is a ~200 KB bundle using ~40 MB RAM.
 - **Corner overlay** — after each capture a thumbnail pops into the bottom-left
   with **Copy**, **Reveal**, **Pin**, and **Markup**. It stays until you dismiss it, and
   multiple captures **stack** upward. The overlay hides while you drag the image out.
-- **Markup** — draw smooth editable curves, freehand strokes, lines, arrows,
-  boxes, ovals, text, and translucent highlights. Choose colors and widths,
-  move shapes with Select, and use Edit Points to reveal handles.
-  Double-click curves, boxes, or ovals to add outline points. Sketch handles stay
-  hidden until Edit Points is enabled. Text edits directly on the image and
-  returns to Select automatically, with font, size, color, and a resize handle. Includes centered image fitting, an animated crop view, undo/redo, pinch-to-zoom, Copy, and
-  Save Copy. Saves a separate PNG beside the original at the original pixel
-  resolution (or selected crop size). Video thumbnails do not offer markup.
+- **Markup** — native macOS toolbar and contextual inspector for curves,
+  sketches, lines, arrows, boxes, ovals, text, and highlights. Choose colors,
+  stroke widths, fonts, and text sizes. Text edits directly on the image.
+- **Editable paths** — Edit Points stays enabled when reselecting an outline.
+  Use Add Point and click an edge, or double-click an edge, on lines, arrows,
+  boxes, ovals, curves, sketches, and highlights. Sketch handles stay hidden
+  until editing is enabled. Arrowheads follow the final segment.
+- **Crop adjustment** — drag the image behind the frame, zoom the image with
+  the inspector slider, or resize the crop with its eight frame handles. Apply
+  animates into the result; Cancel discards the draft. Export preserves source
+  pixel resolution for the chosen region.
+- **Save protection** — closing an edited screenshot or quitting the app offers
+  Save a Copy, Replace Original, Discard Changes, and Keep Editing. Copies are
+  separate PNGs beside the original; replacing preserves PNG/JPEG/TIFF formats.
+  Includes undo/redo, pinch-to-zoom, and Copy. Video thumbnails do not offer markup.
 - **Inline discard** — tap the ✕ to reveal a red trash; tap ✕ again to keep, or
   the trash to delete the file.
 - **Customizable in Settings** — set each shortcut, the save folder, the capture

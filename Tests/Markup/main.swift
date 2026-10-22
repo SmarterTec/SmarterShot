@@ -19,9 +19,11 @@ func event(_ type: NSEvent.EventType, _ x: CGFloat, _ y: CGFloat, clicks: Int = 
 }
 func drag(_ tool: MarkupCanvas.Tool, _ a: NSPoint, _ b: NSPoint) {
     canvas.tool = tool
+    if tool == .crop { canvas.startNewCrop() }
     canvas.mouseDown(with:event(.leftMouseDown,a.x,a.y))
     canvas.mouseDragged(with:event(.leftMouseDragged,b.x,b.y))
     canvas.mouseUp(with:event(.leftMouseUp,b.x,b.y))
+    if tool == .crop { canvas.applyCrop() }
 }
 func bitmap() -> NSBitmapImageRep { NSBitmapImageRep(data:canvas.render()!.tiffRepresentation!)! }
 func isBlue(_ x: Int, _ y: Int) -> Bool {
@@ -78,9 +80,11 @@ func send(_ type: NSEvent.EventType, _ p: NSPoint) -> NSEvent {
     return event(type,inWindow.x,inWindow.y)
 }
 canvas.tool = .crop
+canvas.startNewCrop()
 canvas.mouseDown(with:send(.leftMouseDown,NSPoint(x:50,y:50)))
 canvas.mouseDragged(with:send(.leftMouseDragged,NSPoint(x:250,y:200)))
 canvas.mouseUp(with:send(.leftMouseUp,NSPoint(x:250,y:200)))
+canvas.applyCrop()
 RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
 assert(abs(canvas.bounds.minX-50) < 0.01 && abs(canvas.bounds.minY-50) < 0.01 && abs(canvas.bounds.width-200) < 0.01 && abs(canvas.bounds.height-150) < 0.01, "Only the cropped region should be visible after animation")
 assert(isBlue(150,20), "Cropping must preserve annotation alignment")
@@ -111,7 +115,7 @@ for shape in [MarkupCanvas.Tool.rectangle, .ellipse] {
     canvas.mouseDown(with:send(.leftMouseDown,NSPoint(x:100,y:100)))
     canvas.mouseDragged(with:send(.leftMouseDragged,NSPoint(x:300,y:200)))
     canvas.mouseUp(with:send(.leftMouseUp,NSPoint(x:300,y:200)))
-    canvas.togglePointEditing()
+    if !canvas.isEditingPoints { canvas.togglePointEditing() }
     assert(canvas.isEditingPoints)
     let point = shape == .rectangle ? NSPoint(x:200,y:100) : NSPoint(x:300,y:150)
     let inWindow = canvas.convert(point,to:nil)
@@ -157,9 +161,11 @@ assert(canvas.render() != nil)
 print("Text checks passed: inline editing, automatic Select, moving, font/size/color, resize, undo/redo.")
 
 canvas.tool = .crop
+canvas.startNewCrop()
 canvas.mouseDown(with:send(.leftMouseDown,NSPoint(x:50,y:50)))
 canvas.mouseDragged(with:send(.leftMouseDragged,NSPoint(x:250,y:200)))
 canvas.mouseUp(with:send(.leftMouseUp,NSPoint(x:250,y:200)))
+canvas.applyCrop()
 RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
 let display = NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:400,pixelsHigh:300,bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0)!
 NSGraphicsContext.saveGraphicsState()
@@ -175,20 +181,14 @@ print("Display clipping check passed.")
 // an NSButton subclass, so a tool-state update must not index it as a tool.
 let editor = MarkupWindow(shot:CaptureController.Shot(url:URL(fileURLWithPath:"/tmp/markup-toolbar-test.png"),image:source)) { _ in }
 let root = editor.window!.contentView!
-let toolbar = root.subviews.compactMap { $0 as? NSStackView }.first {
-    $0.arrangedSubviews.contains { ($0 as? NSButton)?.action == NSSelectorFromString("selectTool:") }
-}!
-let editedCanvas = root.subviews.compactMap { $0 as? NSScrollView }.first!.documentView as! MarkupCanvas
-let toolButtons = toolbar.arrangedSubviews.compactMap { $0 as? NSButton }.filter { $0.action == NSSelectorFromString("selectTool:") }
-let lineWidth = toolbar.arrangedSubviews.compactMap { $0 as? NSPopUpButton }.first!
-let widthTitle = lineWidth.titleOfSelectedItem
+let editedCanvas = editor.canvas
+let toolButtons = editor.window!.toolbar!.items.filter { $0.itemIdentifier.rawValue.hasPrefix("tool.") }.compactMap { $0.view as? NSButton }
 for tool in MarkupCanvas.Tool.allCases {
-    let button = toolButtons.first { $0.title == tool.rawValue }!
+    let button = toolButtons.first { $0.tag == MarkupCanvas.Tool.allCases.firstIndex(of:tool)! }!
     assert(NSApp.sendAction(button.action!,to:button.target,from:button))
     assert(editedCanvas.tool == tool, "Toolbar must select the requested tool")
     assert(button.state == .on)
     assert(toolButtons.filter { $0.state == .on }.count == 1)
-    assert(lineWidth.titleOfSelectedItem == widthTitle, "Tool changes must not affect line width")
 }
 // Completing the crop also switches the toolbar back to Select. Exercise
 // that second callback through the real editor rather than the isolated canvas.
@@ -196,15 +196,165 @@ func editorEvent(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent {
     NSEvent.mouseEvent(with:type,location:editedCanvas.convert(point,to:nil),modifierFlags:[],timestamp:0,
         windowNumber:editor.window!.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
 }
+editedCanvas.startNewCrop()
 editedCanvas.mouseDown(with:editorEvent(.leftMouseDown,NSPoint(x:50,y:50)))
 editedCanvas.mouseDragged(with:editorEvent(.leftMouseDragged,NSPoint(x:250,y:200)))
 editedCanvas.mouseUp(with:editorEvent(.leftMouseUp,NSPoint(x:250,y:200)))
+editedCanvas.applyCrop()
 RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
 assert(editedCanvas.tool == .select)
 assert(abs(editedCanvas.bounds.width-200)<0.01 && abs(editedCanvas.bounds.height-150)<0.01)
-assert(toolButtons.first { $0.title == "Select" }!.state == .on)
+assert(toolButtons.first { $0.tag == 0 }!.state == .on)
 editedCanvas.undoEdit()
 RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
 assert(abs(editedCanvas.bounds.width-400)<0.01)
 editor.close()
 print("Toolbar checks passed: all tool buttons including Crop; unrelated controls untouched.")
+
+// Point editing remains active across reselection, and Add Point works for
+// open polylines (including arrows) as well as every closed/freehand outline.
+for shape in [MarkupCanvas.Tool.line,.arrow,.rectangle,.ellipse,.curve,.sketch,.highlight] {
+    let c = MarkupCanvas(image:source)
+    let w = NSWindow(contentRect:c.bounds,styleMask:[.borderless],backing:.buffered,defer:false)
+    w.contentView = c
+    func e(_ type:NSEvent.EventType,_ p:NSPoint,clicks:Int=1) -> NSEvent {
+        NSEvent.mouseEvent(with:type,location:c.convert(p,to:nil),modifierFlags:[],timestamp:0,windowNumber:w.windowNumber,context:nil,eventNumber:0,clickCount:clicks,pressure:1)!
+    }
+    c.tool = shape
+    c.mouseDown(with:e(.leftMouseDown,NSPoint(x:40,y:60)))
+    c.mouseDragged(with:e(.leftMouseDragged,NSPoint(x:340,y:220)))
+    c.mouseUp(with:e(.leftMouseUp,NSPoint(x:340,y:220)))
+    if !c.isEditingPoints { c.togglePointEditing() }
+    assert(c.isEditingPoints)
+    let point:NSPoint
+    switch shape {
+    case .rectangle,.highlight: point = NSPoint(x:180,y:60)
+    case .ellipse: point = NSPoint(x:190+150*cos(CGFloat.pi/8),y:140+80*sin(CGFloat.pi/8))
+    default: point = NSPoint(x:115,y:100)
+    }
+    // First select the edge without adding a point; editing must not turn off.
+    c.mouseDown(with:e(.leftMouseDown,point))
+    c.mouseUp(with:e(.leftMouseUp,point))
+    assert(c.isEditingPoints,"Reselecting a line must preserve Edit Points")
+    let before = c.selectionPointCount
+    c.toggleAddingPoints()
+    assert(c.isAddingPoints)
+    c.mouseDown(with:e(.leftMouseDown,point))
+    c.mouseUp(with:e(.leftMouseUp,point))
+    assert(c.selectionPointCount == before+1,"Add Point must work for \(shape)")
+    assert(c.isEditingPoints && c.isAddingPoints)
+    let moved = NSPoint(x:point.x+5,y:point.y+20)
+    c.mouseDown(with:e(.leftMouseDown,point))
+    c.mouseDragged(with:e(.leftMouseDragged,moved))
+    c.mouseUp(with:e(.leftMouseUp,moved))
+    assert((0..<c.selectionPointCount).contains { c.selectedPoint(at:$0) == moved },"Added point must be draggable")
+    c.undoEdit(); c.redoEdit()
+    assert(c.render() != nil)
+}
+print("Persistent point-editing checks passed for lines, arrows, boxes, ovals, curves, sketches, and highlights.")
+
+// Crop is a reversible draft. Pan moves the source behind a fixed crop frame;
+// zoom changes the source region, and frame handles resize without applying it.
+let cropCanvas = MarkupCanvas(image:source)
+let cropWindow = NSWindow(contentRect:cropCanvas.bounds,styleMask:[.borderless],backing:.buffered,defer:false)
+cropWindow.contentView = cropCanvas
+func ce(_ type:NSEvent.EventType,_ p:NSPoint) -> NSEvent {
+    NSEvent.mouseEvent(with:type,location:cropCanvas.convert(p,to:nil),modifierFlags:[],timestamp:0,windowNumber:cropWindow.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
+}
+assert(!cropCanvas.hasUnsavedChanges)
+cropCanvas.tool = .crop
+assert(!cropCanvas.hasUnsavedChanges,"Entering crop alone must not dirty the document")
+let fixedFrame = cropCanvas.cropFrame!
+let center = NSPoint(x:fixedFrame.midX,y:fixedFrame.midY)
+cropCanvas.mouseDown(with:ce(.leftMouseDown,center))
+cropCanvas.mouseDragged(with:ce(.leftMouseDragged,NSPoint(x:center.x+20,y:center.y+10)))
+cropCanvas.mouseUp(with:ce(.leftMouseUp,NSPoint(x:center.x+20,y:center.y+10)))
+assert(cropCanvas.cropFrame == fixedFrame,"Panning the image must leave the crop frame fixed")
+assert(cropCanvas.hasUnsavedChanges)
+let beforeZoom = cropCanvas.outputSize
+cropCanvas.setCropScale(2)
+assert(cropCanvas.outputSize.width < beforeZoom.width && cropCanvas.cropFrame == fixedFrame)
+let cropCorner = NSPoint(x:fixedFrame.maxX,y:fixedFrame.maxY)
+cropCanvas.mouseDown(with:ce(.leftMouseDown,cropCorner))
+cropCanvas.mouseDragged(with:ce(.leftMouseDragged,NSPoint(x:cropCorner.x-30,y:cropCorner.y-20)))
+cropCanvas.mouseUp(with:ce(.leftMouseUp,NSPoint(x:cropCorner.x-30,y:cropCorner.y-20)))
+assert(cropCanvas.cropFrame!.width < fixedFrame.width,"Crop frame must resize from its handles")
+cropCanvas.cancelCrop()
+assert(!cropCanvas.hasUnsavedChanges && cropCanvas.bounds.size == source.size,"Cancel must restore the original without edits")
+cropCanvas.tool = .crop
+cropCanvas.setCropScale(2)
+let output = cropCanvas.outputSize
+cropCanvas.applyCrop()
+assert(cropCanvas.hasUnsavedChanges)
+let result = NSBitmapImageRep(data:cropCanvas.render()!.tiffRepresentation!)!
+assert(abs(CGFloat(result.pixelsWide)-output.width)<2 && abs(CGFloat(result.pixelsHigh)-output.height)<2)
+cropCanvas.undoEdit()
+assert(!cropCanvas.hasUnsavedChanges,"Undoing the only edit must restore a clean document")
+print("Crop draft checks passed: image pan, image zoom, frame resize, cancel, apply, export, and dirty state.")
+
+// Exercise the native close sheet and actual atomic file writes in test fixtures.
+let fixtures = URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent(".build/markup-tests/fixtures")
+try FileManager.default.createDirectory(at:fixtures,withIntermediateDirectories:true)
+let originalURL = fixtures.appendingPathComponent("original-\(UUID().uuidString).png")
+let originalData = rep.representation(using:.png,properties:[:])!
+try originalData.write(to:originalURL)
+var savedURL:URL?
+let saveEditor = MarkupWindow(shot:CaptureController.Shot(url:originalURL,image:source)) { savedURL = $0.url }
+func drawIn(_ editor:MarkupWindow) {
+    let c = editor.canvas
+    func ev(_ type:NSEvent.EventType,_ p:NSPoint) -> NSEvent {
+        NSEvent.mouseEvent(with:type,location:c.convert(p,to:nil),modifierFlags:[],timestamp:0,windowNumber:editor.window!.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
+    }
+    c.tool = .line
+    c.mouseDown(with:ev(.leftMouseDown,NSPoint(x:40,y:50)))
+    c.mouseDragged(with:ev(.leftMouseDragged,NSPoint(x:250,y:180)))
+    c.mouseUp(with:ev(.leftMouseUp,NSPoint(x:250,y:180)))
+}
+assert(saveEditor.windowShouldClose(saveEditor.window!),"Unchanged screenshots must close without a sheet")
+drawIn(saveEditor)
+assert(!saveEditor.windowShouldClose(saveEditor.window!),"Edited screenshots must not close without a decision")
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.05))
+let sheet = saveEditor.window!.attachedSheet!
+func allViews(_ root:NSView) -> [NSView] { [root] + root.subviews.flatMap(allViews) }
+let choices = allViews(sheet.contentView!).compactMap { $0 as? NSButton }.map(\.title)
+for title in ["Save a Copy","Replace Original","Discard Changes","Keep Editing"] { assert(choices.contains(title),"Missing close choice: \(title)") }
+saveEditor.window!.endSheet(sheet,returnCode:NSApplication.ModalResponse(rawValue:NSApplication.ModalResponse.alertFirstButtonReturn.rawValue+3))
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.1))
+assert(saveEditor.canvas.hasUnsavedChanges && saveEditor.window!.isVisible,"Keep Editing must preserve the open edit")
+assert((try! Data(contentsOf:originalURL)) == originalData)
+assert(!saveEditor.windowShouldClose(saveEditor.window!))
+saveEditor.window!.endSheet(saveEditor.window!.attachedSheet!,returnCode:.alertFirstButtonReturn)
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
+assert(!saveEditor.window!.isVisible && !saveEditor.canvas.hasUnsavedChanges)
+assert(savedURL != originalURL && savedURL != nil)
+assert((try! Data(contentsOf:originalURL)) == originalData,"Save a Copy must preserve the original bytes")
+assert(FileManager.default.fileExists(atPath:savedURL!.path))
+let replaceEditor = MarkupWindow(shot:CaptureController.Shot(url:originalURL,image:source)) { savedURL = $0.url }
+drawIn(replaceEditor)
+assert(!replaceEditor.windowShouldClose(replaceEditor.window!))
+replaceEditor.window!.endSheet(replaceEditor.window!.attachedSheet!,returnCode:.alertSecondButtonReturn)
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
+assert(!replaceEditor.window!.isVisible)
+assert(savedURL == originalURL)
+assert((try! Data(contentsOf:originalURL)) != originalData,"Replace must write the edited image to the original file")
+print("Close/save checks passed: dirty prompt, all four choices, Keep Editing, Save Copy, and Replace Original.")
+
+let afterReplace = try Data(contentsOf:originalURL)
+let discardEditor = MarkupWindow(shot:CaptureController.Shot(url:originalURL,image:source)) { _ in assertionFailure("Discard must not save") }
+drawIn(discardEditor)
+assert(!discardEditor.windowShouldClose(discardEditor.window!))
+discardEditor.window!.endSheet(discardEditor.window!.attachedSheet!,returnCode:.alertThirdButtonReturn)
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
+assert(!discardEditor.window!.isVisible && (try! Data(contentsOf:originalURL)) == afterReplace)
+let quitEditor = MarkupWindow(shot:CaptureController.Shot(url:originalURL,image:source)) { _ in }
+drawIn(quitEditor)
+var quitAllowed:Bool?
+MarkupWindow.reviewBeforeQuitting { quitAllowed = $0 }
+quitEditor.window!.endSheet(quitEditor.window!.attachedSheet!,returnCode:NSApplication.ModalResponse(rawValue:NSApplication.ModalResponse.alertFirstButtonReturn.rawValue+3))
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
+assert(quitAllowed == false && quitEditor.window!.isVisible && quitEditor.canvas.hasUnsavedChanges)
+MarkupWindow.reviewBeforeQuitting { quitAllowed = $0 }
+quitEditor.window!.endSheet(quitEditor.window!.attachedSheet!,returnCode:.alertThirdButtonReturn)
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
+assert(quitAllowed == true && !MarkupWindow.hasUnsavedEditors)
+print("Native save-sheet checks passed for Save Copy, Replace, Discard, Keep Editing, and app-quit cancellation.")

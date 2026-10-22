@@ -1,210 +1,372 @@
 import AppKit
 
-/// A non-destructive screenshot editor. Coordinates are image points; export
-/// uses the source bitmap's pixel dimensions rather than the window resolution.
-final class MarkupWindow: NSWindowController, NSWindowDelegate, NSComboBoxDelegate {
+/// A native toolbar, canvas, and contextual inspector around a non-destructive editor.
+final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSComboBoxDelegate {
+    enum SaveDisposition { case replaceOriginal, copy }
     private static var editors: [MarkupWindow] = []
-    private let canvas: MarkupCanvas
+    let canvas: MarkupCanvas
     private let source: URL
     private let onSave: (CaptureController.Shot) -> Void
-    private let status = NSTextField(labelWithString: "Drag to draw. Select to move shapes or drag their handles. Use Edit Points to adjust handles or double-click an outline to add a point.")
+    private var allowClose = false
+    private var showingSaveSheet = false
+    private var toolButtons: [MarkupCanvas.Tool: NSButton] = [:]
+    private let status = NSTextField(wrappingLabelWithString: "")
+    private let dimensions = NSTextField(labelWithString: "")
+    private let editPoints = NSButton(title: "Edit Points", target: nil, action: nil)
+    private let addPoint = NSButton(title: "Add Point", target: nil, action: nil)
+    private let color = NSColorWell()
+    private let width = NSPopUpButton()
+    private let font = NSPopUpButton()
+    private let textSize = NSComboBox()
+    private let textSection = NSStackView()
+    private let pointSection = NSStackView()
+    private let cropSection = NSStackView()
+    private let cropZoom = NSSlider(value: 1, minValue: 0.1, maxValue: 5, target: nil, action: nil)
+    private let scroll = NSScrollView()
 
     init(shot: CaptureController.Shot, onSave: @escaping (CaptureController.Shot) -> Void) {
         source = shot.url
         self.onSave = onSave
         canvas = MarkupCanvas(image: shot.image)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 780),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x:0,y:0,width:1240,height:800),
+                              styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
         super.init(window: window)
-        window.title = "Markup — \(shot.url.lastPathComponent)"
-        window.minSize = NSSize(width: 850, height: 500)
+        window.title = shot.url.lastPathComponent
+        window.subtitle = "Markup"
+        window.minSize = NSSize(width:1000,height:600)
         window.delegate = self
         window.isReleasedWhenClosed = false
+        window.toolbarStyle = .unified
+        let toolbar = NSToolbar(identifier:"SmarterShot.Markup")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = false
+        window.toolbar = toolbar
+
         let root = NSView()
         window.contentView = root
-        let tools = NSStackView()
-        tools.orientation = .horizontal
-        tools.spacing = 4
-        var toolButtons: [NSButton] = []
-        for (index, tool) in MarkupCanvas.Tool.allCases.enumerated() {
-            let button = NSButton(title: tool.rawValue, target: self, action: #selector(selectTool(_:)))
-            button.tag = index
-            button.bezelStyle = .texturedRounded
-            button.setButtonType(.pushOnPushOff)
-            button.state = tool == canvas.tool ? .on : .off
-            button.setAccessibilityLabel(tool.rawValue)
-            tools.addArrangedSubview(button)
-            toolButtons.append(button)
-        }
-        canvas.onToolChanged = { [weak canvas, weak status, toolButtons] in
-            guard let canvas = canvas else { return }
-            // Only drawing-tool buttons participate: NSPopUpButton is also an
-            // NSButton, but its default tag is not a drawing-tool index.
-            for (index, button) in toolButtons.enumerated() {
-                button.state = MarkupCanvas.Tool.allCases[index] == canvas.tool ? .on : .off
-            }
-            status?.stringValue = canvas.tool == .select
-                ? "Select · Drag to move. Drag the text corner to resize. Double-click text to edit; use Edit Points for shape handles."
-                : canvas.tool == .text
-                    ? "Text · Click the image and type. Press Return to finish, then drag to move."
-                    : "\(canvas.tool.rawValue) · Drag to draw. Use Edit Points for handles, then double-click an outline to add a point."
-        }
-        let color = NSColorWell()
-        color.color = .systemBlue
-        color.target = self
-        color.action = #selector(changeColor(_:))
-        color.setAccessibilityLabel("Stroke color")
-        color.widthAnchor.constraint(equalToConstant: 36).isActive = true
-        tools.addArrangedSubview(color)
-        let width = NSPopUpButton()
-        width.addItems(withTitles: ["Thin", "Medium", "Thick"])
-        width.selectItem(at: 1)
-        width.target = self
-        width.action = #selector(changeWidth(_:))
-        width.setAccessibilityLabel("Line width")
-        tools.addArrangedSubview(width)
-        let editPoints = NSButton(title: "Edit Points", target: self, action: #selector(togglePointEditing))
-        editPoints.bezelStyle = .rounded
-        editPoints.setButtonType(.toggle)
-        editPoints.isEnabled = false
-        canvas.onEditingChanged = { [weak canvas, weak editPoints] in
-            editPoints?.isEnabled = canvas?.canEditPoints ?? false
-            editPoints?.state = canvas?.isEditingPoints == true ? .on : .off
-        }
-        let textTools = NSStackView()
-        textTools.spacing = 8
-        textTools.addArrangedSubview(NSTextField(labelWithString: "Font"))
-        let font = NSPopUpButton()
-        font.addItems(withTitles: ["System"] + NSFontManager.shared.availableFontFamilies.sorted())
-        font.target = self
-        font.action = #selector(changeFontFamily(_:))
-        font.setAccessibilityLabel("Text font")
-        font.widthAnchor.constraint(equalToConstant: 210).isActive = true
-        textTools.addArrangedSubview(font)
-        textTools.addArrangedSubview(NSTextField(labelWithString: "Size"))
-        let size = NSComboBox()
-        size.addItems(withObjectValues: [12, 16, 18, 24, 32, 48, 64, 96].map(String.init))
-        size.stringValue = "24"
-        size.target = self
-        size.action = #selector(changeTextSize(_:))
-        size.delegate = self
-        size.setAccessibilityLabel("Text size")
-        size.widthAnchor.constraint(equalToConstant: 72).isActive = true
-        textTools.addArrangedSubview(size)
-        textTools.addArrangedSubview(NSTextField(labelWithString: "Use the color picker above for text color."))
-        let previousCallback = canvas.onEditingChanged
-        canvas.onEditingChanged = { [weak canvas, weak font, weak size, weak color] in
-            previousCallback?()
-            guard let canvas = canvas else { return }
-            font?.selectItem(withTitle: canvas.selectedTextFamily)
-            size?.stringValue = String(Int(canvas.selectedTextSize.rounded()))
-            if let ink = canvas.selectedColor { color?.color = ink }
-        }
-        let actions = NSStackView()
-        actions.spacing = 8
-        actions.addArrangedSubview(editPoints)
-        for (title, selector) in [("Undo", #selector(undoEdit)), ("Redo", #selector(redoEdit)),
-                                  ("Delete", #selector(deleteEdit)), ("Copy", #selector(copyImage)),
-                                  ("Cancel", #selector(cancel)), ("Save Copy", #selector(save))] {
-            let button = NSButton(title: title, target: self, action: selector)
-            button.bezelStyle = .rounded
-            actions.addArrangedSubview(button)
-        }
-        let scroll = NSScrollView()
         scroll.contentView = MarkupClipView()
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.allowsMagnification = true
-        scroll.minMagnification = 0.1
-        scroll.maxMagnification = 4
+        scroll.minMagnification = 0.05
+        scroll.maxMagnification = 8
         scroll.documentView = canvas
         scroll.backgroundColor = .underPageBackgroundColor
-        status.font = .systemFont(ofSize: 12)
-        status.textColor = .secondaryLabelColor
-        for view in [tools, textTools, scroll, status, actions] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            root.addSubview(view)
-        }
+        scroll.borderType = .noBorder
+        let inspector = NSVisualEffectView()
+        inspector.material = .sidebar
+        inspector.blendingMode = .withinWindow
+        let fields = NSStackView()
+        fields.orientation = .vertical
+        fields.alignment = .leading
+        fields.spacing = 16
+        inspector.addSubview(fields)
+        fields.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            tools.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
-            tools.topAnchor.constraint(equalTo: root.topAnchor, constant: 12),
-            textTools.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
-            textTools.topAnchor.constraint(equalTo: tools.bottomAnchor, constant: 8),
-            scroll.topAnchor.constraint(equalTo: textTools.bottomAnchor, constant: 12),
-            scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor), scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -10),
-            status.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 12),
-            status.bottomAnchor.constraint(equalTo: actions.topAnchor, constant: -10),
-            actions.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -12),
-            actions.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -12)
+            fields.leadingAnchor.constraint(equalTo:inspector.leadingAnchor,constant:18),
+            fields.trailingAnchor.constraint(equalTo:inspector.trailingAnchor,constant:-18),
+            fields.topAnchor.constraint(equalTo:inspector.topAnchor,constant:20)
         ])
+        func heading(_ text: String) -> NSTextField {
+            let label = NSTextField(labelWithString:text)
+            label.font = .systemFont(ofSize:12,weight:.semibold)
+            label.textColor = .secondaryLabelColor
+            return label
+        }
+        func row(_ label: String, _ control: NSView) -> NSStackView {
+            let title = NSTextField(labelWithString:label)
+            title.font = .systemFont(ofSize:12)
+            let stack = NSStackView(views:[title,control])
+            stack.distribution = .fill
+            stack.spacing = 10
+            control.setContentHuggingPriority(.defaultLow,for:.horizontal)
+            stack.widthAnchor.constraint(equalToConstant:210).isActive = true
+            return stack
+        }
+        func section(_ stack: NSStackView) {
+            stack.orientation = .vertical
+            stack.alignment = .leading
+            stack.spacing = 10
+            fields.addArrangedSubview(stack)
+        }
+        fields.addArrangedSubview(heading("STYLE"))
+        color.color = .systemBlue
+        color.target = self; color.action = #selector(changeColor(_:))
+        color.setAccessibilityLabel("Annotation color")
+        fields.addArrangedSubview(row("Color",color))
+        width.addItems(withTitles:["Fine · 2 pt","Regular · 5 pt","Bold · 10 pt"])
+        width.selectItem(at:1)
+        width.target = self; width.action = #selector(changeWidth(_:))
+        width.setAccessibilityLabel("Line width")
+        fields.addArrangedSubview(row("Stroke",width))
+        let separator = NSBox(); separator.boxType = .separator
+        separator.widthAnchor.constraint(equalToConstant:210).isActive = true
+        fields.addArrangedSubview(separator)
+
+        section(pointSection)
+        pointSection.addArrangedSubview(heading("PATH"))
+        for button in [editPoints,addPoint] {
+            button.bezelStyle = .rounded
+            button.setButtonType(.pushOnPushOff)
+            button.target = self
+            button.widthAnchor.constraint(equalToConstant:210).isActive = true
+            pointSection.addArrangedSubview(button)
+        }
+        editPoints.action = #selector(togglePointEditing)
+        addPoint.action = #selector(toggleAddPoint)
+        let pointHelp = NSTextField(wrappingLabelWithString:"Edit Points stays on until you turn it off. Use Add Point and click an edge, or double-click an edge. Drag handles to reshape.")
+        pointHelp.font = .systemFont(ofSize:11)
+        pointHelp.textColor = .secondaryLabelColor
+        pointHelp.widthAnchor.constraint(equalToConstant:210).isActive = true
+        pointSection.addArrangedSubview(pointHelp)
+
+        section(textSection)
+        textSection.addArrangedSubview(heading("TEXT"))
+        font.addItems(withTitles:["System"] + NSFontManager.shared.availableFontFamilies.sorted())
+        font.target = self; font.action = #selector(changeFontFamily(_:))
+        font.setAccessibilityLabel("Text font")
+        font.widthAnchor.constraint(equalToConstant:210).isActive = true
+        textSection.addArrangedSubview(font)
+        textSize.addItems(withObjectValues:[12,16,18,24,32,48,64,96].map(String.init))
+        textSize.stringValue = "24"
+        textSize.target = self; textSize.action = #selector(changeTextSize(_:)); textSize.delegate = self
+        textSize.setAccessibilityLabel("Text size")
+        textSection.addArrangedSubview(row("Size",textSize))
+
+        section(cropSection)
+        cropSection.addArrangedSubview(heading("CROP"))
+        let cropHelp = NSTextField(wrappingLabelWithString:"Drag the image inside the frame to reposition it. Drag a frame handle to resize the crop. Zoom the image below.")
+        cropHelp.font = .systemFont(ofSize:12)
+        cropHelp.widthAnchor.constraint(equalToConstant:210).isActive = true
+        cropSection.addArrangedSubview(cropHelp)
+        cropZoom.target = self; cropZoom.action = #selector(changeCropZoom(_:))
+        cropZoom.isContinuous = true
+        cropZoom.setAccessibilityLabel("Image zoom within crop")
+        cropZoom.widthAnchor.constraint(equalToConstant:210).isActive = true
+        cropSection.addArrangedSubview(cropZoom)
+        for (title,action) in [("Draw New Frame",#selector(newCrop)),("Apply Crop",#selector(applyCrop)),("Cancel Crop",#selector(cancelCrop))] {
+            let b = NSButton(title:title,target:self,action:action)
+            b.bezelStyle = .rounded
+            b.widthAnchor.constraint(equalToConstant:210).isActive = true
+            cropSection.addArrangedSubview(b)
+        }
+        status.font = .systemFont(ofSize:12)
+        status.textColor = .secondaryLabelColor
+        status.widthAnchor.constraint(equalToConstant:210).isActive = true
+        fields.addArrangedSubview(status)
+        dimensions.font = .monospacedDigitSystemFont(ofSize:11,weight:.regular)
+        dimensions.textColor = .secondaryLabelColor
+        let fit = NSButton(title:"Fit",target:self,action:#selector(fitImage))
+        let minus = NSButton(image:NSImage(systemSymbolName:"minus.magnifyingglass",accessibilityDescription:"Zoom out")!,target:self,action:#selector(zoomOut))
+        let plus = NSButton(image:NSImage(systemSymbolName:"plus.magnifyingglass",accessibilityDescription:"Zoom in")!,target:self,action:#selector(zoomIn))
+        let zoom = NSStackView(views:[minus,fit,plus]); zoom.spacing = 4
+        let footer = NSView()
+        for view in [dimensions,zoom] { footer.addSubview(view); view.translatesAutoresizingMaskIntoConstraints = false }
+        NSLayoutConstraint.activate([
+            dimensions.leadingAnchor.constraint(equalTo:footer.leadingAnchor,constant:16),dimensions.centerYAnchor.constraint(equalTo:footer.centerYAnchor),
+            zoom.trailingAnchor.constraint(equalTo:footer.trailingAnchor,constant:-12),zoom.centerYAnchor.constraint(equalTo:footer.centerYAnchor)
+        ])
+        for view in [scroll,footer,inspector] { root.addSubview(view); view.translatesAutoresizingMaskIntoConstraints = false }
+        NSLayoutConstraint.activate([
+            inspector.trailingAnchor.constraint(equalTo:root.trailingAnchor),inspector.topAnchor.constraint(equalTo:root.topAnchor),inspector.bottomAnchor.constraint(equalTo:root.bottomAnchor),
+            inspector.widthAnchor.constraint(equalToConstant:246),
+            scroll.leadingAnchor.constraint(equalTo:root.leadingAnchor),scroll.topAnchor.constraint(equalTo:root.topAnchor),
+            scroll.trailingAnchor.constraint(equalTo:inspector.leadingAnchor),scroll.bottomAnchor.constraint(equalTo:footer.topAnchor),
+            footer.leadingAnchor.constraint(equalTo:root.leadingAnchor),footer.trailingAnchor.constraint(equalTo:inspector.leadingAnchor),
+            footer.bottomAnchor.constraint(equalTo:root.bottomAnchor),footer.heightAnchor.constraint(equalToConstant:42)
+        ])
+        canvas.onToolChanged = { [weak self] in self?.refreshInspector() }
+        canvas.onEditingChanged = { [weak self] in self?.refreshInspector() }
+        canvas.onSaveRequested = { [weak self] in self?.askToSave() }
+        canvas.tool = .select
         window.center()
         Self.editors.append(self)
         showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate(ignoringOtherApps:true)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(canvas)
         root.layoutSubtreeIfNeeded()
         canvas.fitInViewport()
+        refreshInspector()
     }
-    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
-    func windowWillClose(_ notification: Notification) { Self.editors.removeAll { $0 === self } }
-    @objc private func selectTool(_ sender: NSButton) {
+    required init?(coder:NSCoder) { fatalError("init(coder:) not used") }
+    static var hasUnsavedEditors: Bool { editors.contains { $0.canvas.hasUnsavedChanges } }
+    static func reviewBeforeQuitting(completion:@escaping (Bool)->Void) {
+        let open = editors
+        func next(_ index:Int) {
+            guard index < open.count else { completion(true); return }
+            let editor = open[index]
+            editor.canvas.endTextEditing()
+            if editor.canvas.hasUnsavedChanges {
+                editor.askToSave { accepted in
+                    if accepted { next(index+1) } else { completion(false) }
+                }
+            } else { editor.allowClose = true; editor.close(); next(index+1) }
+        }
+        next(0)
+    }
+    private func refreshInspector() {
+        for (tool,button) in toolButtons { button.state = canvas.tool == tool ? .on : .off }
+        editPoints.isEnabled = canvas.canEditPoints
+        editPoints.state = canvas.isEditingPoints ? .on : .off
+        addPoint.isEnabled = canvas.canEditPoints
+        addPoint.state = canvas.isAddingPoints ? .on : .off
+        pointSection.isHidden = !canvas.canEditPoints
+        textSection.isHidden = !(canvas.isTextSelected || canvas.tool == .text)
+        cropSection.isHidden = !canvas.isCropping
+        cropZoom.minValue = Double(canvas.minimumCropScale)
+        cropZoom.doubleValue = Double(canvas.cropScale)
+        font.selectItem(withTitle:canvas.selectedTextFamily)
+        textSize.stringValue = String(Int(canvas.selectedTextSize.rounded()))
+        if let ink = canvas.selectedColor { color.color = ink; canvas.ink = ink }
+        let selectedWidth = canvas.selectedStrokeWidth
+        canvas.strokeWidth = selectedWidth
+        width.selectItem(at:[CGFloat(2),5,10].enumerated().min { abs($0.element-selectedWidth)<abs($1.element-selectedWidth) }!.offset)
+        window?.isDocumentEdited = canvas.hasUnsavedChanges
+        let size = canvas.outputSize
+        dimensions.stringValue = "\(Int(size.width.rounded())) × \(Int(size.height.rounded())) px"
+        status.stringValue = canvas.isCropping ? "Return applies the crop. Escape cancels it."
+            : canvas.isEditingPoints ? "Point editing is on. Use Add Point or double-click an edge to insert a point. Drag handles to reshape."
+            : canvas.tool == .text ? "Click to type. Return finishes; double-click text to edit it again."
+            : "Drag to draw. Select an annotation to move it or change its style."
+    }
+    func toolbarDefaultItemIdentifiers(_ toolbar:NSToolbar) -> [NSToolbarItem.Identifier] {
+        MarkupCanvas.Tool.allCases.map { .init("tool.\($0.rawValue)") } + [.flexibleSpace,.init("undo"),.init("redo"),.init("copy"),.init("save")]
+    }
+    func toolbarAllowedItemIdentifiers(_ toolbar:NSToolbar) -> [NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(toolbar) }
+    func toolbar(_ toolbar:NSToolbar,itemForItemIdentifier id:NSToolbarItem.Identifier,willBeInsertedIntoToolbar:Bool) -> NSToolbarItem? {
+        let item = NSToolbarItem(itemIdentifier:id)
+        if let index = MarkupCanvas.Tool.allCases.firstIndex(where:{id.rawValue == "tool.\($0.rawValue)"}) {
+            let tool = MarkupCanvas.Tool.allCases[index]
+            let symbols = ["cursorarrow","pencil.tip","point.topleft.down.to.point.bottomright.curvepath","line.diagonal","arrow.up.right","rectangle","oval","textformat","highlighter","crop"]
+            let b = NSButton(image:NSImage(systemSymbolName:symbols[index],accessibilityDescription:tool.rawValue) ?? NSImage(),target:self,action:#selector(selectTool(_:)))
+            b.tag = index; b.setButtonType(.pushOnPushOff); b.bezelStyle = .texturedRounded
+            b.toolTip = tool.rawValue
+            b.setAccessibilityLabel(tool.rawValue)
+            b.widthAnchor.constraint(equalToConstant:32).isActive = true
+            toolButtons[tool] = b
+            item.view = b; item.label = tool.rawValue; item.paletteLabel = tool.rawValue
+        } else {
+            let title:String, symbol:String, action:Selector
+            switch id.rawValue {
+            case "undo": (title,symbol,action) = ("Undo","arrow.uturn.backward",#selector(undoEdit))
+            case "redo": (title,symbol,action) = ("Redo","arrow.uturn.forward",#selector(redoEdit))
+            case "copy": (title,symbol,action) = ("Copy","doc.on.doc",#selector(copyImage))
+            case "save": (title,symbol,action) = ("Save","square.and.arrow.down",#selector(saveAction))
+            default: return nil
+            }
+            let b = id.rawValue == "save" ? NSButton(title:"Save…",target:self,action:action)
+                : NSButton(image:NSImage(systemSymbolName:symbol,accessibilityDescription:title) ?? NSImage(),target:self,action:action)
+            b.bezelStyle = .texturedRounded; b.toolTip = title; b.setAccessibilityLabel(title)
+            item.view = b; item.label = title
+        }
+        return item
+    }
+    @objc private func selectTool(_ sender:NSButton) {
         guard MarkupCanvas.Tool.allCases.indices.contains(sender.tag) else { return }
+        canvas.endTextEditing()
         canvas.tool = MarkupCanvas.Tool.allCases[sender.tag]
         window?.makeFirstResponder(canvas)
     }
-    @objc private func changeColor(_ sender: NSColorWell) { canvas.ink = sender.color; canvas.restyleSelection() }
-    @objc private func changeWidth(_ sender: NSPopUpButton) { canvas.strokeWidth = [2.0, 5.0, 10.0][sender.indexOfSelectedItem]; canvas.restyleSelection() }
-    @objc private func changeFontFamily(_ sender: NSPopUpButton) {
-        canvas.setTextFamily(sender.titleOfSelectedItem ?? "System")
-    }
-    @objc private func changeTextSize(_ sender: NSComboBox) {
-        if let value = Double(sender.stringValue), value.isFinite { canvas.setTextSize(CGFloat(value)) }
-    }
-    func controlTextDidEndEditing(_ notification: Notification) {
-        if let sender = notification.object as? NSComboBox { changeTextSize(sender) }
-    }
-    func comboBoxSelectionDidChange(_ notification: Notification) {
-        guard let sender = notification.object as? NSComboBox,
-              let value = sender.objectValueOfSelectedItem as? String, let size = Double(value) else { return }
-        canvas.setTextSize(CGFloat(size))
+    @objc private func changeColor(_ sender:NSColorWell) { canvas.ink = sender.color; canvas.restyleSelection() }
+    @objc private func changeWidth(_ sender:NSPopUpButton) { canvas.strokeWidth = [2,5,10][sender.indexOfSelectedItem]; canvas.restyleSelection() }
+    @objc private func changeFontFamily(_ sender:NSPopUpButton) { canvas.setTextFamily(sender.titleOfSelectedItem ?? "System") }
+    @objc private func changeTextSize(_ sender:NSComboBox) { if let n = Double(sender.stringValue),n.isFinite { canvas.setTextSize(n) } }
+    func controlTextDidEndEditing(_ notification:Notification) { if let sender = notification.object as? NSComboBox { changeTextSize(sender) } }
+    func comboBoxSelectionDidChange(_ notification:Notification) {
+        guard let sender = notification.object as? NSComboBox,let value = sender.objectValueOfSelectedItem as? String,let n = Double(value) else { return }
+        canvas.setTextSize(n)
     }
     @objc private func togglePointEditing() { canvas.togglePointEditing(); window?.makeFirstResponder(canvas) }
+    @objc private func toggleAddPoint() { canvas.toggleAddingPoints(); window?.makeFirstResponder(canvas) }
+    @objc private func newCrop() { canvas.startNewCrop(); window?.makeFirstResponder(canvas) }
+    @objc private func applyCrop() { canvas.applyCrop(); window?.makeFirstResponder(canvas) }
+    @objc private func cancelCrop() { canvas.cancelCrop(); window?.makeFirstResponder(canvas) }
+    @objc private func changeCropZoom(_ sender:NSSlider) { canvas.setCropScale(sender.doubleValue) }
+    @objc private func fitImage() { canvas.fitInViewport() }
+    @objc private func zoomIn() { scroll.magnification = min(scroll.maxMagnification,scroll.magnification*1.25) }
+    @objc private func zoomOut() { scroll.magnification = max(scroll.minMagnification,scroll.magnification/1.25) }
     @objc private func undoEdit() { canvas.undoEdit() }
     @objc private func redoEdit() { canvas.redoEdit() }
-    @objc private func deleteEdit() { canvas.deleteSelection() }
-    @objc private func cancel() { close() }
     @objc private func copyImage() {
+        canvas.endTextEditing()
         guard let image = canvas.render() else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([image])
-        status.stringValue = "Annotated image copied."
+        NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects([image])
+        status.stringValue = "Image copied."
     }
-    @objc private func save() {
-        guard let image = canvas.render(), let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff), let png = bitmap.representation(using: .png, properties: [:]) else { return }
-        let stem = source.deletingPathExtension().lastPathComponent + " — Markup"
-        var destination = source.deletingLastPathComponent().appendingPathComponent(stem + ".png")
-        var suffix = 2
-        while FileManager.default.fileExists(atPath: destination.path) {
-            destination = source.deletingLastPathComponent().appendingPathComponent("\(stem) (\(suffix)).png")
-            suffix += 1
+    @objc private func saveAction() { askToSave() }
+    func windowShouldClose(_ sender:NSWindow) -> Bool {
+        canvas.endTextEditing()
+        if allowClose || !canvas.hasUnsavedChanges { return true }
+        askToSave()
+        return false
+    }
+    func windowWillClose(_ notification:Notification) { Self.editors.removeAll { $0 === self } }
+    private func askToSave(completion:((Bool)->Void)? = nil) {
+        guard !showingSaveSheet,let window = window else { completion?(false); return }
+        canvas.endTextEditing()
+        showingSaveSheet = true
+        let alert = NSAlert()
+        alert.messageText = "Save changes to this screenshot?"
+        alert.informativeText = "Save a separate copy or replace “\(source.lastPathComponent)”."
+        alert.addButton(withTitle:"Save a Copy")
+        alert.addButton(withTitle:"Replace Original")
+        alert.addButton(withTitle:"Discard Changes")
+        alert.addButton(withTitle:"Keep Editing").keyEquivalent = "\u{1b}"
+        alert.beginSheetModal(for:window) { [weak self] response in
+            guard let self = self else { return }
+            self.showingSaveSheet = false
+            switch response.rawValue {
+            case NSApplication.ModalResponse.alertFirstButtonReturn.rawValue:
+                let saved = self.saveEdits(.copy); completion?(saved)
+            case NSApplication.ModalResponse.alertSecondButtonReturn.rawValue:
+                let saved = self.saveEdits(.replaceOriginal); completion?(saved)
+            case NSApplication.ModalResponse.alertThirdButtonReturn.rawValue: self.allowClose = true; self.close(); completion?(true)
+            default: completion?(false)
+            }
         }
+    }
+    @discardableResult func saveEdits(_ disposition:SaveDisposition) -> Bool {
+        canvas.endTextEditing()
+        if canvas.isCropping { canvas.applyCrop() }
+        guard let image = canvas.render(),let tiff = image.tiffRepresentation,let bitmap = NSBitmapImageRep(data:tiff) else { return false }
+        let destination:URL
+        let type:NSBitmapImageRep.FileType
+        if disposition == .replaceOriginal {
+            destination = source
+            switch source.pathExtension.lowercased() {
+            case "png": type = .png
+            case "jpg","jpeg": type = .jpeg
+            case "tif","tiff": type = .tiff
+            default:
+                showError(NSError(domain:"SmarterShot",code:1,userInfo:[NSLocalizedDescriptionKey:"This file format cannot be replaced. Choose Save a Copy to create a PNG."]))
+                return false
+            }
+        } else {
+            let stem = source.deletingPathExtension().lastPathComponent + " — Markup"
+            var candidate = source.deletingLastPathComponent().appendingPathComponent(stem+".png")
+            var n = 2
+            while FileManager.default.fileExists(atPath:candidate.path) {
+                candidate = source.deletingLastPathComponent().appendingPathComponent("\(stem) (\(n)).png"); n += 1
+            }
+            destination = candidate; type = .png
+        }
+        guard let data = bitmap.representation(using:type,properties:type == .jpeg ? [.compressionFactor:0.95] : [:]) else { return false }
         do {
-            try png.write(to: destination, options: .atomic)
-            onSave(CaptureController.Shot(url: destination, image: image))
-            close()
-        } catch {
-            let alert = NSAlert(error: error)
-            alert.beginSheetModal(for: window!)
-        }
+            try data.write(to:destination,options:.atomic)
+            canvas.markSaved()
+            onSave(CaptureController.Shot(url:destination,image:image))
+            allowClose = true; close()
+            return true
+        } catch { showError(error); return false }
     }
+    private func showError(_ error:Error) { if let window = window { NSAlert(error:error).beginSheetModal(for:window) } }
 }
 
 final class MarkupCanvas: NSView, NSTextFieldDelegate {
     enum Tool: String, CaseIterable { case select = "Select", sketch = "Sketch", curve = "Curve", line = "Line", arrow = "Arrow", rectangle = "Box", ellipse = "Oval", text = "Text", highlight = "Highlight", crop = "Crop" }
-    struct Mark {
+    struct Mark: Equatable {
         var tool: Tool
         var points: [NSPoint]
         var color: NSColor
@@ -215,7 +377,23 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     }
     let image: NSImage
     var onToolChanged: (() -> Void)?
-    var tool: Tool = .curve { didSet { onToolChanged?() } }
+    var tool: Tool = .curve {
+        didSet {
+            if oldValue == .crop && tool != .crop && isCropping {
+                if cropChanged { applyCrop(updateTool:false) } else { cancelCrop(updateTool:false) }
+            }
+            if tool == .crop && !isCropping { beginCrop() }
+            onToolChanged?()
+        }
+    }
+    var onSaveRequested: (() -> Void)?
+    private var savedMarks: [Mark] = []
+    var hasUnsavedChanges: Bool { marks != savedMarks || (isCropping && cropChanged) }
+    var isTextSelected: Bool { selected.map { marks[$0].tool == .text } ?? false }
+    func markSaved() { savedMarks = marks; notifyChange() }
+    func endTextEditing() { finishTextEditing() }
+    private func notifyChange() { needsDisplay = true; onEditingChanged?() }
+
     var ink: NSColor = .systemBlue
     var strokeWidth: CGFloat = 5
     private var textFamily = "System"
@@ -225,9 +403,10 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     private var textResizeRect = NSRect.zero
     private var textResizeSize: CGFloat = 24
     private var marks: [Mark] = []
-    var selectedTextFamily: String { selected.map { marks[$0].fontFamily } ?? textFamily }
-    var selectedTextSize: CGFloat { selected.map { marks[$0].fontSize } ?? textSize }
+    var selectedTextFamily: String { isTextSelected ? marks[selected!].fontFamily : textFamily }
+    var selectedTextSize: CGFloat { isTextSelected ? marks[selected!].fontSize : textSize }
     var selectedColor: NSColor? { selected.map { marks[$0].color } }
+    var selectedStrokeWidth: CGFloat { selected.map { marks[$0].width } ?? strokeWidth }
     private func font(for mark: Mark) -> NSFont {
         if mark.fontFamily == "System" { return NSFont.systemFont(ofSize: mark.fontSize) }
         return NSFontManager.shared.font(withFamily:mark.fontFamily,traits:[],weight:5,size:mark.fontSize)
@@ -239,11 +418,11 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     }
     func setTextFamily(_ family: String) {
         textFamily = family
-        if let i = selected, marks[i].tool == .text { checkpoint(); marks[i].fontFamily = family; refreshTextEditor(); needsDisplay = true }
+        if let i = selected, marks[i].tool == .text { checkpoint(); marks[i].fontFamily = family; refreshTextEditor(); notifyChange() }
     }
     func setTextSize(_ size: CGFloat) {
         textSize = max(6,min(300,size))
-        if let i = selected, marks[i].tool == .text { checkpoint(); marks[i].fontSize = textSize; refreshTextEditor(); needsDisplay = true }
+        if let i = selected, marks[i].tool == .text { checkpoint(); marks[i].fontSize = textSize; refreshTextEditor(); notifyChange() }
     }
     private func beginTextEditing(at i: Int) {
         finishTextEditing()
@@ -274,11 +453,11 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         editingTextIndex = nil; textEditor = nil
         field.delegate = nil
         field.removeFromSuperview()
-        needsDisplay = true
+        notifyChange()
     }
     func controlTextDidChange(_ notification: Notification) {
         guard let i = editingTextIndex, let field = textEditor else { return }
-        marks[i].text = field.stringValue; refreshTextEditor(); needsDisplay = true
+        marks[i].text = field.stringValue; refreshTextEditor(); notifyChange()
     }
     func controlTextDidEndEditing(_ notification: Notification) { finishTextEditing() }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
@@ -290,21 +469,34 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     private var history: [[Mark]] = []
     private var future: [[Mark]] = []
     var onEditingChanged: (() -> Void)?
-    private(set) var isEditingPoints = false { didSet { onEditingChanged?(); needsDisplay = true } }
+    private(set) var isEditingPoints = false { didSet { onEditingChanged?(); notifyChange() } }
     var canEditPoints: Bool {
         guard let i = selected else { return false }
-        return ![Tool.text, .crop, .highlight].contains(marks[i].tool)
+        return ![Tool.text, .crop].contains(marks[i].tool)
     }
     private var selected: Int? { didSet { onEditingChanged?() } }
     func togglePointEditing() {
         guard canEditPoints, let i = selected else { return }
         if !isEditingPoints { prepareOutline(at: i) }
         isEditingPoints.toggle()
+        if !isEditingPoints { isAddingPoints = false }
+        tool = .select
+    }
+    private(set) var isAddingPoints = false { didSet { notifyChange() } }
+    var selectionPointCount: Int { selected.map { marks[$0].points.count } ?? 0 }
+    func selectedPoint(at index:Int) -> NSPoint? {
+        guard let i = selected,marks[i].points.indices.contains(index) else { return nil }
+        return marks[i].points[index]
+    }
+    func toggleAddingPoints() {
+        guard canEditPoints,let i = selected else { return }
+        isAddingPoints.toggle()
+        if isAddingPoints { prepareOutline(at:i); isEditingPoints = true; tool = .select }
     }
     private func prepareOutline(at i: Int) {
         guard marks[i].points.count == 2 else { return }
         let r = rect(marks[i])
-        if marks[i].tool == .rectangle {
+        if marks[i].tool == .rectangle || marks[i].tool == .highlight {
             checkpoint()
             marks[i].points = [r.origin, NSPoint(x:r.maxX,y:r.minY), NSPoint(x:r.maxX,y:r.maxY), NSPoint(x:r.minX,y:r.maxY)]
         } else if marks[i].tool == .ellipse {
@@ -326,6 +518,128 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         guard let crop = marks.last(where: { $0.tool == .crop }) else { return imageBounds }
         let area = rect(crop).intersection(imageBounds)
         return area.width >= 1 && area.height >= 1 ? area : imageBounds
+    }
+
+    private(set) var isCropping = false
+    private(set) var cropFrame: NSRect?
+    private var cropOffset = NSPoint.zero
+    private(set) var cropScale: CGFloat = 1
+    private var cropChanged = false
+    private var cropDrag: Int? // -2 new frame, -1 image pan, 0...7 frame handles
+    private var cropAnchor = NSPoint.zero
+    private var cropStartFrame = NSRect.zero
+    var minimumCropScale: CGFloat {
+        guard let frame = cropFrame else { return 0.1 }
+        return max(0.1,max(frame.width/imageBounds.width,frame.height/imageBounds.height))
+    }
+    private var cropImageRect: NSRect {
+        NSRect(x:cropOffset.x,y:cropOffset.y,width:imageBounds.width*cropScale,height:imageBounds.height*cropScale)
+    }
+    private var draftSourceRect: NSRect? {
+        guard let frame = cropFrame,frame.width >= 1,frame.height >= 1 else { return nil }
+        let result = NSRect(x:(frame.minX-cropOffset.x)/cropScale,y:(frame.minY-cropOffset.y)/cropScale,
+                            width:frame.width/cropScale,height:frame.height/cropScale).intersection(imageBounds)
+        return result.width >= 1 && result.height >= 1 ? result : nil
+    }
+    var outputSize: NSSize {
+        let area = isCropping ? (draftSourceRect ?? committedCrop) : committedCrop
+        guard let cg = image.cgImage(forProposedRect:nil,context:nil,hints:nil) else { return area.size }
+        return NSSize(width:area.width*CGFloat(cg.width)/imageBounds.width,height:area.height*CGFloat(cg.height)/imageBounds.height)
+    }
+    private func beginCrop() {
+        endTextEditing()
+        cropAnimation?.invalidate(); cropAnimation = nil; isAnimatingCrop = false
+        isCropping = true
+        cropScale = 1; cropOffset = .zero; cropChanged = false
+        cropFrame = NSEqualRects(committedCrop,imageBounds) ? imageBounds.insetBy(dx:imageBounds.width*0.12,dy:imageBounds.height*0.12) : committedCrop
+        selected = nil
+        setFrameSize(imageBounds.size); bounds = imageBounds
+        fitInViewport(); notifyChange()
+    }
+    func startNewCrop() {
+        if !isCropping { tool = .crop }
+        cropFrame = nil; cropDrag = nil
+        cropScale = 1; cropOffset = .zero; cropChanged = false
+        notifyChange()
+    }
+    private func clampCropOffset() {
+        guard let frame = cropFrame else { return }
+        cropOffset.x = max(frame.maxX-imageBounds.width*cropScale,min(frame.minX,cropOffset.x))
+        cropOffset.y = max(frame.maxY-imageBounds.height*cropScale,min(frame.minY,cropOffset.y))
+    }
+    func setCropScale(_ value: CGFloat) {
+        guard isCropping, value.isFinite, let frame = cropFrame else { return }
+        let next = max(minimumCropScale,min(8,value))
+        let anchor = NSPoint(x:(frame.midX-cropOffset.x)/cropScale,y:(frame.midY-cropOffset.y)/cropScale)
+        cropOffset = NSPoint(x:frame.midX-anchor.x*next,y:frame.midY-anchor.y*next)
+        cropScale = next; clampCropOffset(); cropChanged = true; notifyChange()
+    }
+    func applyCrop(updateTool: Bool = true) {
+        guard isCropping else { return }
+        guard let area = draftSourceRect else { cancelCrop(updateTool:updateTool); return }
+        checkpoint()
+        marks.removeAll { $0.tool == .crop }
+        marks.append(Mark(tool:.crop,points:[area.origin,NSPoint(x:area.maxX,y:area.maxY)],color:.clear,width:0))
+        selected = nil
+        isCropping = false; cropFrame = nil; cropChanged = false; cropDrag = nil
+        if updateTool { tool = .select }
+        showCommittedCrop(); notifyChange()
+    }
+    func cancelCrop(updateTool: Bool = true) {
+        guard isCropping else { return }
+        isCropping = false; cropFrame = nil; cropChanged = false; cropDrag = nil
+        if updateTool { tool = .select }
+        showCommittedCrop(); notifyChange()
+    }
+    private func cropHandles(_ frame: NSRect) -> [NSPoint] {
+        [NSPoint(x:frame.minX,y:frame.minY),NSPoint(x:frame.midX,y:frame.minY),NSPoint(x:frame.maxX,y:frame.minY),
+         NSPoint(x:frame.maxX,y:frame.midY),NSPoint(x:frame.maxX,y:frame.maxY),NSPoint(x:frame.midX,y:frame.maxY),
+         NSPoint(x:frame.minX,y:frame.maxY),NSPoint(x:frame.minX,y:frame.midY)]
+    }
+    private func cropMouseDown(_ point: NSPoint) {
+        cropAnchor = point
+        if let frame = cropFrame {
+            cropStartFrame = frame
+            if let h = cropHandles(frame).firstIndex(where:{distance(point,$0)<hitRadius*1.2}) { cropDrag = h; return }
+            if frame.contains(point) { cropDrag = -1; return }
+        }
+        cropDrag = -2
+        cropFrame = NSRect(origin:point,size:.zero)
+    }
+    private func cropMouseDragged(_ point: NSPoint) {
+        guard let drag = cropDrag else { return }
+        if drag == -1 {
+            cropOffset.x += point.x-lastPoint.x; cropOffset.y += point.y-lastPoint.y
+            clampCropOffset()
+        } else if drag == -2 {
+            let proposed = NSRect(x:min(cropAnchor.x,point.x),y:min(cropAnchor.y,point.y),width:abs(point.x-cropAnchor.x),height:abs(point.y-cropAnchor.y))
+            cropFrame = proposed.intersection(imageBounds).intersection(cropImageRect)
+        } else {
+            let r = cropStartFrame
+            var minX = r.minX, maxX = r.maxX, minY = r.minY, maxY = r.maxY
+            if [0,6,7].contains(drag) { minX = min(point.x,maxX-1) }
+            if [2,3,4].contains(drag) { maxX = max(point.x,minX+1) }
+            if [0,1,2].contains(drag) { minY = min(point.y,maxY-1) }
+            if [4,5,6].contains(drag) { maxY = max(point.y,minY+1) }
+            cropFrame = NSRect(x:minX,y:minY,width:maxX-minX,height:maxY-minY).intersection(imageBounds).intersection(cropImageRect)
+        }
+        cropChanged = true; lastPoint = point; notifyChange()
+    }
+    private func drawCropFrame() {
+        guard let frame = cropFrame else { return }
+        let mask = NSBezierPath(rect:bounds); mask.appendRect(frame); mask.windingRule = .evenOdd
+        NSColor.black.withAlphaComponent(0.5).setFill(); mask.fill()
+        NSColor.white.setStroke()
+        let border = NSBezierPath(rect:frame); border.lineWidth = hitRadius/8; border.stroke()
+        let grid = NSBezierPath(); grid.lineWidth = hitRadius/18
+        for n in 1...2 {
+            let x = frame.minX+frame.width*CGFloat(n)/3, y = frame.minY+frame.height*CGFloat(n)/3
+            grid.move(to:NSPoint(x:x,y:frame.minY)); grid.line(to:NSPoint(x:x,y:frame.maxY))
+            grid.move(to:NSPoint(x:frame.minX,y:y)); grid.line(to:NSPoint(x:frame.maxX,y:y))
+        }
+        NSColor.white.withAlphaComponent(0.4).setStroke(); grid.stroke()
+        NSColor.white.setFill()
+        for point in cropHandles(frame) { NSBezierPath(roundedRect:NSRect(x:point.x-hitRadius/2,y:point.y-hitRadius/2,width:hitRadius,height:hitRadius),xRadius:hitRadius/5,yRadius:hitRadius/5).fill() }
     }
 
     func fitInViewport() {
@@ -364,7 +678,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
             self.bounds = area
             if let scroll = scroll { scroll.magnification = startZoom + (targetZoom - startZoom) * progress }
             self.centerInViewport()
-            self.needsDisplay = true
+            self.notifyChange()
         }
         guard animated, scroll != nil, !NSEqualRects(start, target),
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
@@ -393,11 +707,16 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
     private func checkpoint() { history.append(marks); future.removeAll() }
-    func undoEdit() { finishTextEditing(); guard let previous = history.popLast() else { return }; future.append(marks); marks = previous; selected = nil; showCommittedCrop(); needsDisplay = true }
-    func redoEdit() { finishTextEditing(); guard let next = future.popLast() else { return }; history.append(marks); marks = next; selected = nil; showCommittedCrop(); needsDisplay = true }
-    func deleteSelection() { finishTextEditing(); guard let i = selected else { return }; checkpoint(); marks.remove(at: i); selected = nil; showCommittedCrop(); needsDisplay = true }
-    func restyleSelection() { guard let i = selected else { return }; checkpoint(); marks[i].color = ink; marks[i].width = strokeWidth; refreshTextEditor(); needsDisplay = true }
+    func undoEdit() { finishTextEditing(); if isCropping { cancelCrop(); return }; guard let previous = history.popLast() else { return }; future.append(marks); marks = previous; selected = nil; showCommittedCrop(); notifyChange() }
+    func redoEdit() { finishTextEditing(); if isCropping { cancelCrop(); return }; guard let next = future.popLast() else { return }; history.append(marks); marks = next; selected = nil; showCommittedCrop(); notifyChange() }
+    func deleteSelection() { finishTextEditing(); guard let i = selected else { return }; checkpoint(); marks.remove(at: i); selected = nil; showCommittedCrop(); notifyChange() }
+    func restyleSelection() { guard let i = selected else { return }; checkpoint(); marks[i].color = ink; marks[i].width = strokeWidth; refreshTextEditor(); notifyChange() }
     override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "s" { onSaveRequested?(); return }
+        if isCropping {
+            if event.keyCode == 36 { applyCrop(); return }
+            if event.keyCode == 53 { cancelCrop(); return }
+        }
         if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "z" {
             if event.modifierFlags.contains(.shift) { redoEdit() } else { undoEdit() }; return
         }
@@ -416,9 +735,9 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         p.lineCapStyle = .round
         p.lineJoinStyle = .round
         let points = mark.points
-        if mark.tool == .highlight || mark.tool == .crop || (mark.tool == .rectangle && points.count == 2) { p.appendRect(rect(mark)); return p }
+        if mark.tool == .crop || ([Tool.rectangle,.highlight].contains(mark.tool) && points.count == 2) { p.appendRect(rect(mark)); return p }
         if mark.tool == .ellipse && points.count == 2 { p.appendOval(in: rect(mark)); return p }
-        let closed = mark.tool == .rectangle || mark.tool == .ellipse
+        let closed = [.rectangle,.ellipse,.highlight].contains(mark.tool)
         p.move(to: points[0])
         if mark.tool == .curve || mark.tool == .sketch || mark.tool == .ellipse {
             // Closed outlines wrap their neighboring points at the seam.
@@ -432,7 +751,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         } else { for point in points.dropFirst() { p.line(to: point) } }
         if closed { p.close() }
         if mark.tool == .arrow, let end = points.last {
-            let start = points[0], angle = atan2(end.y-start.y,end.x-start.x), length = max(15,mark.width*4)
+            let start = points[points.count-2], angle = atan2(end.y-start.y,end.x-start.x), length = max(15,mark.width*4)
             for offset in [-CGFloat.pi/6, CGFloat.pi/6] {
                 p.move(to: end)
                 p.line(to: NSPoint(x:end.x-length*cos(angle+offset), y:end.y-length*sin(angle+offset)))
@@ -444,22 +763,16 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         // Explicit clipping is needed with newer AppKit defaults: the source
         // image extends beyond the document bounds after a non-destructive crop.
         if !exporting { NSBezierPath(rect: bounds).addClip() }
+        NSGraphicsContext.saveGraphicsState()
+        if isCropping && !exporting {
+            let transform = NSAffineTransform()
+            transform.translateX(by:cropOffset.x,yBy:cropOffset.y)
+            transform.scale(by:cropScale)
+            transform.concat()
+        }
         image.draw(in: imageBounds)
         for mark in marks {
-            if mark.tool == .crop {
-                if !exporting && drawing {
-                    let mask = NSBezierPath(rect: bounds)
-                    mask.appendRect(rect(mark))
-                    mask.windingRule = .evenOdd
-                    NSColor.black.withAlphaComponent(0.4).setFill()
-                    mask.fill()
-                    NSColor.white.setStroke()
-                    let border = path(mark)
-                    border.lineWidth = 1 / (enclosingScrollView?.magnification ?? 1)
-                    border.stroke()
-                }
-                continue
-            }
+            if mark.tool == .crop { continue }
             mark.color.setStroke()
             if mark.tool == .text {
                 (mark.text as NSString).draw(at: mark.points[0], withAttributes: [.foregroundColor: mark.color, .font: font(for: mark)])
@@ -467,6 +780,8 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
                 mark.color.withAlphaComponent(0.3).setFill(); path(mark).fill()
             } else { path(mark).stroke() }
         }
+        NSGraphicsContext.restoreGraphicsState()
+        if isCropping && !exporting { drawCropFrame(); return }
         if !exporting, let i = selected, marks[i].tool == .text, editingTextIndex == nil {
             let r = textRect(marks[i])
             NSColor.systemBlue.setStroke()
@@ -476,7 +791,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
             NSColor.systemBlue.setFill()
             NSBezierPath(rect:NSRect(x:r.maxX-hitRadius/2,y:r.maxY-hitRadius/2,width:hitRadius,height:hitRadius)).fill()
         }
-        if !exporting, isEditingPoints, let i = selected {
+        if !exporting, isEditingPoints, canEditPoints, let i = selected {
             for (j, point) in marks[i].points.enumerated() {
                 let radius = hitRadius * 0.45
                 let dot = NSBezierPath(ovalIn: NSRect(x:point.x-radius,y:point.y-radius,width:radius*2,height:radius*2))
@@ -491,43 +806,40 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         lastPoint = point; drawing = false; handle = nil
+        if isCropping { cropMouseDown(point); return }
         if tool == .select {
-            if let i = selected {
-                if marks[i].tool == .text {
-                    let r = textRect(marks[i])
-                    if event.clickCount == 2 && r.contains(point) { checkpoint(); beginTextEditing(at:i); return }
-                    if distance(point,NSPoint(x:r.maxX,y:r.maxY)) < hitRadius {
-                        checkpoint(); handle = -1; textResizeRect = r; textResizeSize = marks[i].fontSize; return
-                    }
+            if let i = selected, marks[i].tool == .text {
+                let r = textRect(marks[i])
+                if event.clickCount == 2 && r.contains(point) { checkpoint(); beginTextEditing(at:i); return }
+                if distance(point,NSPoint(x:r.maxX,y:r.maxY)) < hitRadius {
+                    checkpoint(); handle = -1; textResizeRect = r; textResizeSize = marks[i].fontSize; return
                 }
-                if event.clickCount == 2, [.curve, .sketch, .rectangle, .ellipse].contains(marks[i].tool) {
-                    prepareOutline(at: i)
-                    isEditingPoints = true
-                    checkpoint()
-                    let pts = marks[i].points
-                    let closed = marks[i].tool == .rectangle || marks[i].tool == .ellipse
-                    let segment = (0..<(closed ? pts.count : pts.count-1)).min {
-                        segmentDistance(point,pts[$0],pts[($0+1)%pts.count]) < segmentDistance(point,pts[$1],pts[($1+1)%pts.count])
-                    }!
-                    marks[i].points.insert(point, at: segment+1)
-                    handle = segment+1; needsDisplay = true; return
-                }
-                if isEditingPoints, let j = marks[i].points.indices.first(where: { distance(point, marks[i].points[$0]) < hitRadius }) {
-                    checkpoint(); handle = j; return
-                }
+            }
+            if isEditingPoints,canEditPoints,let i = selected,
+               let j = marks[i].points.indices.first(where:{distance(point,marks[i].points[$0])<hitRadius}) {
+                checkpoint(); handle = j; return
             }
             selected = marks.indices.reversed().first { i in
                 let m = marks[i]
                 if m.tool == .crop { return false }
-                if m.tool == .text {
-                    return textRect(m).insetBy(dx:-hitRadius,dy:-hitRadius).contains(point)
-                }
-                if m.tool == .highlight { return rect(m).contains(point) }
+                if m.tool == .text { return textRect(m).insetBy(dx:-hitRadius,dy:-hitRadius).contains(point) }
+                if m.tool == .highlight && path(m).contains(point) { return true }
                 let cg = path(m).cgPathForHitTesting
-                return cg.copy(strokingWithWidth: max(m.width,hitRadius*2),lineCap:.round,lineJoin:.round,miterLimit:10).contains(point)
+                return cg.copy(strokingWithWidth:max(m.width,hitRadius*2),lineCap:.round,lineJoin:.round,miterLimit:10).contains(point)
             }
-            isEditingPoints = selected.map { marks[$0].tool == .curve } ?? false
-            if selected != nil { checkpoint() }
+            if let i = selected {
+                if canEditPoints && (isEditingPoints || event.clickCount == 2) {
+                    prepareOutline(at:i)
+                    if event.clickCount == 2 { isEditingPoints = true }
+                    if let j = marks[i].points.indices.first(where:{distance(point,marks[i].points[$0])<hitRadius}) {
+                        checkpoint(); handle = j; return
+                    }
+                    if isAddingPoints || event.clickCount == 2 {
+                        insertPoint(point,at:i); return
+                    }
+                }
+                checkpoint()
+            }
         } else if tool == .text {
             checkpoint()
             var mark = Mark(tool:.text,points:[point],color:ink,width:strokeWidth,text:"Text")
@@ -539,12 +851,26 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
             beginTextEditing(at:marks.count-1)
         } else {
             checkpoint()
-            if tool == .crop { marks.removeAll { $0.tool == .crop } }
             let points = tool == .curve ? [point,point,point] : [point,point]
             marks.append(Mark(tool:tool,points:points,color:ink,width:strokeWidth))
-            selected = marks.count-1; isEditingPoints = tool == .curve; drawing = true
+            selected = marks.count-1
+            if tool == .sketch { isEditingPoints = false; isAddingPoints = false }
+            if tool == .curve { isEditingPoints = true }
+            drawing = true
         }
-        needsDisplay = true
+        notifyChange()
+    }
+    private func insertPoint(_ point:NSPoint, at i:Int) {
+        let pts = marks[i].points
+        let closed = [.rectangle,.ellipse,.highlight].contains(marks[i].tool)
+        guard pts.count >= 2 else { return }
+        let segment = (0..<(closed ? pts.count : pts.count-1)).min {
+            segmentDistance(point,pts[$0],pts[($0+1)%pts.count]) < segmentDistance(point,pts[$1],pts[($1+1)%pts.count])
+        }!
+        checkpoint()
+        marks[i].points.insert(point,at:segment+1)
+        handle = segment+1
+        notifyChange()
     }
     private func segmentDistance(_ p: NSPoint, _ a: NSPoint, _ b: NSPoint) -> CGFloat {
         let dx=b.x-a.x, dy=b.y-a.y, length=dx*dx+dy*dy
@@ -552,8 +878,9 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         return distance(p,NSPoint(x:a.x+t*dx,y:a.y+t*dy))
     }
     override func mouseDragged(with event: NSEvent) {
-        guard let i = selected else { return }
         let p = convert(event.locationInWindow,from:nil)
+        if isCropping { cropMouseDragged(p); return }
+        guard let i = selected else { return }
         if drawing {
             if tool == .sketch {
                 if distance(p,marks[i].points.last!) > 2 { marks[i].points.append(p) }
@@ -572,25 +899,12 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
             let dx=p.x-lastPoint.x, dy=p.y-lastPoint.y
             marks[i].points = marks[i].points.map { NSPoint(x:$0.x+dx,y:$0.y+dy) }
         }
-        lastPoint = p; needsDisplay = true
+        lastPoint = p; notifyChange()
     }
     override func mouseUp(with event: NSEvent) {
-        if drawing {
-            let wasCrop = tool == .crop
-            drawing = false
-            tool = .select
-            if wasCrop, let i = selected {
-                let area = rect(marks[i]).intersection(bounds)
-                selected = nil
-                if area.width >= 1 && area.height >= 1 {
-                    marks[i].points = [area.origin, NSPoint(x: area.maxX, y: area.maxY)]
-                    showCommittedCrop()
-                } else if let previous = history.popLast() {
-                    marks = previous
-                }
-            }
-        }
-        needsDisplay = true
+        if isCropping { cropDrag = nil; notifyChange(); return }
+        if drawing { drawing = false; tool = .select }
+        notifyChange()
     }
     func render() -> NSImage? {
         guard let source = image.cgImage(forProposedRect:nil,context:nil,hints:nil),
@@ -600,8 +914,8 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         context.cgContext.scaleBy(x:CGFloat(source.width)/imageBounds.width,y:CGFloat(source.height)/imageBounds.height)
         exporting = true; draw(imageBounds); exporting = false
         NSGraphicsContext.restoreGraphicsState()
-        if let crop = marks.last(where: { $0.tool == .crop }) {
-            let area = rect(crop).intersection(imageBounds)
+        let area = isCropping ? (draftSourceRect ?? committedCrop) : committedCrop
+        if !NSEqualRects(area,imageBounds) {
             let sx = CGFloat(source.width)/imageBounds.width, sy = CGFloat(source.height)/imageBounds.height
             let pixels = NSRect(x:area.minX*sx,y:(imageBounds.height-area.maxY)*sy,width:area.width*sx,height:area.height*sy).integral
             if pixels.width > 0, pixels.height > 0, let cg = bitmap.cgImage?.cropping(to:pixels) {

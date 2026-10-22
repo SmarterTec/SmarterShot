@@ -234,6 +234,8 @@ final class OverlayWindow: NSPanel {
         autoDismissTimer?.invalidate()
         PasteWatcher.shared.forget(self)
         _ = MarkupWindow(shot: shot) { edited in
+            // Replacing a screenshot must retire thumbnails holding its old pixels.
+            for overlay in OverlayWindow.stack where overlay.shot.url == edited.url { overlay.dismiss() }
             CaptureController.copyToClipboard(edited)
             let overlay = OverlayWindow(shot: edited)
             PasteWatcher.shared.noteCopied(overlay: overlay)

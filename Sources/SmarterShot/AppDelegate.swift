@@ -33,6 +33,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    func applicationShouldTerminate(_ sender:NSApplication) -> NSApplication.TerminateReply {
+        guard MarkupWindow.hasUnsavedEditors else { return .terminateNow }
+        DispatchQueue.main.async {
+            MarkupWindow.reviewBeforeQuitting { accepted in sender.reply(toApplicationShouldTerminate:accepted) }
+        }
+        return .terminateLater
+    }
+
     private var versionString: String {
         let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
         return "SmarterShot \(short)"
