@@ -5,6 +5,8 @@ All notable changes to SmarterShot. This project follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-22
+
 ### Added
 - Check for Updates from the menu bar, with signed downloads and in-app installation
   from GitHub Releases. Optional daily checks; installation stays under your control.
