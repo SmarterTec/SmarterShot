@@ -6,6 +6,8 @@ All notable changes to SmarterShot. This project follows
 ## [Unreleased]
 
 ### Changed
+- Native Liquid Glass screenshot bubbles on macOS 26 and later, with interactive
+  glass feedback on macOS 27 and a translucent fallback on older systems.
 - Screenshot previews close gaps when removed and scroll within the screen without
   a visible scrollbar. Older previews are retained instead of dropping after six.
 - Mouse-wheel zoom in markup and crop mode. Crop zoom keeps the frame fixed;

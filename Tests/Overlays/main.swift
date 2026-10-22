@@ -27,6 +27,11 @@ settle()
 let panel = app.windows.first { $0.title == "Screenshot Previews" }!
 let scroll = panel.contentView as! NSScrollView
 let document = scroll.documentView!
+if #available(macOS 26.0, *) {
+    let glass = document.subviews.first as! NSGlassEffectView
+    assert(glass.style == .regular && glass.contentView != nil && glass.cornerRadius == 20)
+    if #available(macOS 27.0, *) { assert(glass.effectIsInteractive) }
+}
 assert(!scroll.hasVerticalScroller && !scroll.hasHorizontalScroller)
 let before = document.subviews[1].frame.minY
 OverlayWindow.stack[0].dismiss()

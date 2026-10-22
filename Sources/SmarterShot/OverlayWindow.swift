@@ -4,7 +4,7 @@ import AppKit
 /// capture. Shows a thumbnail you can drag out, plus quick actions.
 /// Stays until dismissed; multiple overlays stack upward from the corner.
 final class OverlayWindow: NSObject {
-    private let card: NSVisualEffectView
+    private let card: NSView
     private var isDismissing = false
     private let shot: CaptureController.Shot
     private var trashButton: NSButton!
@@ -35,17 +35,29 @@ final class OverlayWindow: NSObject {
 
         let rect = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
 
-        card = NSVisualEffectView(frame: rect)
+        let controls = NSView(frame: rect)
+        controls.autoresizingMask = [.width,.height]
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView(frame:rect)
+            glass.style = .regular
+            glass.cornerRadius = 20
+            if #available(macOS 27.0, *) { glass.effectIsInteractive = true }
+            // Content must live in contentView so AppKit composites it above glass.
+            glass.contentView = controls
+            card = glass
+        } else {
+            let backdrop = NSVisualEffectView(frame:rect)
+            backdrop.material = .popover
+            backdrop.blendingMode = .behindWindow
+            backdrop.state = .active
+            backdrop.wantsLayer = true
+            backdrop.layer?.cornerRadius = 20
+            backdrop.layer?.masksToBounds = true
+            backdrop.addSubview(controls)
+            card = backdrop
+        }
         super.init()
-        let effect = card
-        effect.material = .popover
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 12
-        effect.layer?.masksToBounds = true
-        effect.layer?.borderWidth = 1
-        effect.layer?.borderColor = NSColor.separatorColor.cgColor
+        let effect = controls
 
         // Thumbnail (draggable out).
         let thumb = DraggableImageView(frame: NSRect(x: pad, y: thumbY, width: thumbW, height: thumbH))
@@ -53,7 +65,7 @@ final class OverlayWindow: NSObject {
         thumb.fileURL = shot.url
         thumb.imageScaling = .scaleProportionallyUpOrDown
         thumb.wantsLayer = true
-        thumb.layer?.cornerRadius = 6
+        thumb.layer?.cornerRadius = 10
         thumb.layer?.masksToBounds = true
         thumb.layer?.backgroundColor = NSColor(white: 0.5, alpha: 0.15).cgColor
         // Hide the overlay while dragging so only the image moves with the cursor.

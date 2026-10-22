@@ -41,6 +41,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 self?.openAITester(screenshot: path.map { URL(fileURLWithPath: $0) })
             }
         }
+        // Read-only preview rehearsal using existing files, without new captures
+        // or clipboard changes. Keep the normal menu and shortcuts running.
+        if let index = CommandLine.arguments.firstIndex(of: "--preview-existing") {
+            let paths = Array(CommandLine.arguments.dropFirst(index + 1))
+            DispatchQueue.main.async {
+                for path in paths {
+                    let url = URL(fileURLWithPath:path)
+                    guard let image = NSImage(contentsOf:url) else { continue }
+                    _ = OverlayWindow(shot:CaptureController.Shot(url:url,image:image))
+                }
+            }
+        }
         rebind(warnOnFailure: false)
 
         if !ShortcutStore.hasCompletedOnboarding {
