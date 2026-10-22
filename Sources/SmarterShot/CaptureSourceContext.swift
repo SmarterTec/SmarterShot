@@ -50,6 +50,30 @@ enum CaptureSourceContext {
         }
         return nil
     }
+    /// Finalize a new screenshot after its source app is known. Moving preserves
+    /// image bytes and metadata. Folder failures leave the capture in its root
+    /// folder; filename collisions always get a fresh numeric suffix.
+    static func storeCapture(at source:URL,appName:String?,organizeByApp:Bool) -> URL {
+        let app = safeComponent(appName ?? "")
+        let root = source.deletingLastPathComponent()
+        var folder = root
+        if organizeByApp {
+            let grouped = root.appendingPathComponent(app.isEmpty ? "Other" : String(app.prefix(90)),isDirectory:true)
+            do { try FileManager.default.createDirectory(at:grouped,withIntermediateDirectories:true); folder = grouped }
+            catch { /* Preserve a successfully saved capture even if grouping fails. */ }
+        }
+        let stem = source.deletingPathExtension().lastPathComponent + (app.isEmpty ? "" : " - " + app)
+        let ext = source.pathExtension.isEmpty ? "" : "." + source.pathExtension
+        var destination = folder.appendingPathComponent(stem+ext)
+        if destination == source { return source }
+        var suffix = 2
+        while FileManager.default.fileExists(atPath:destination.path) {
+            destination = folder.appendingPathComponent(stem+" (\(suffix))"+ext); suffix += 1
+        }
+        do { try FileManager.default.moveItem(at:source,to:destination); return destination }
+        catch { return source }
+    }
+
     static func safeComponent(_ name:String) -> String {
         name.components(separatedBy:CharacterSet.alphanumerics.union(.whitespaces).inverted)
             .joined(separator:" ").split(whereSeparator: \.isWhitespace).joined(separator:" ")

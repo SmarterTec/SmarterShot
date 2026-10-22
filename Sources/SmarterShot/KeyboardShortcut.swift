@@ -69,6 +69,12 @@ enum ShortcutStore {
         set { defaults.set(newValue.path, forKey: saveFolderKey) }
     }
 
+    /// Applies only to new screenshots; existing files and recordings stay put.
+    static var organizeScreenshotsByApp: Bool {
+        get { defaults.bool(forKey:"organizeScreenshotsByApp") }
+        set { defaults.set(newValue,forKey:"organizeScreenshotsByApp") }
+    }
+
     static var area: KeyboardShortcut {
         get { load(areaKey) ?? .defaultArea }
         set { save(newValue, areaKey) }

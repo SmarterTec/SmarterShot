@@ -112,6 +112,11 @@ Descriptions and suggested names are editable in the preview. Captures save and
 appear immediately; automatic on-device analysis runs afterward, one image at a
 time. Dismissing a preview cancels its analysis. Videos are not analyzed.
 
+In **Settings**, enable **Organize screenshots by app** to save new screenshots
+in folders such as `Screenshots/Blender/`. It is off by default. Unknown apps go
+in `Other`; recordings and existing files stay where they are. Inline filename
+edits and markup copies stay in the same app folder.
+
 ## On-device AI tester
 
 Choose **Test On-Device AI…** from SmarterShot's menu-bar menu, select a screenshot,

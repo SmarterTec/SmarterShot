@@ -32,6 +32,8 @@ All notable changes to SmarterShot. This project follows
   name when identifiable. Imported images fall back to their file date.
 
 ### Added
+- Optional “Organize screenshots by app” setting for new captures. Uses the
+  source app recorded by macOS; unknown apps go in Other. Off by default.
 - On-device AI tester: choose a screenshot, review editable filename and description
   suggestions, retry, or copy the results. Uses only Apple's local model, with no
   cloud fallback. The separate tester remains read-only.

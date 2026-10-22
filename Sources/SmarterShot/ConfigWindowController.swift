@@ -17,6 +17,7 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
     private var recordWindowRecorder: ShortcutRecorderButton!
     private var launchCheckbox: NSButton!
     private var savePathField: NSTextField!
+    private var organizeCheckbox: NSButton!
     private var soundPopup: NSPopUpButton!
     private var recordAudioCheckbox: NSButton!
     private var finished = false
@@ -43,7 +44,7 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
     // MARK: - Building
 
     private func buildWindow() {
-        let width: CGFloat = 500, height: CGFloat = 574
+        let width: CGFloat = 500, height: CGFloat = 628
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
                           styleMask: [.titled, .closable],
                           backing: .buffered, defer: false)
@@ -109,6 +110,18 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
         chooseButton.frame = NSRect(x: width - pad - 86, y: y - 24, width: 86, height: 24)
         content.addSubview(chooseButton)
         y -= 40
+
+        organizeCheckbox = NSButton(checkboxWithTitle:"Organize screenshots by app",
+                                    target:self,action:#selector(toggleOrganizeByApp))
+        organizeCheckbox.state = ShortcutStore.organizeScreenshotsByApp ? .on : .off
+        organizeCheckbox.toolTip = "Save new screenshots in app-named folders inside your selected save folder"
+        organizeCheckbox.frame = NSRect(x:pad,y:y-22,width:width-pad*2,height:22)
+        content.addSubview(organizeCheckbox)
+        let organizeHelp = label("New screenshots only. Unknown apps go in Other.",size:11,bold:false)
+        organizeHelp.textColor = .secondaryLabelColor
+        organizeHelp.frame = NSRect(x:pad+20,y:y-42,width:width-pad*2-20,height:18)
+        content.addSubview(organizeHelp)
+        y -= 54
 
         // Capture sound row.
         let soundLabel = label("Capture sound", size: 13, bold: false)
@@ -205,6 +218,10 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
     /// re-syncs from the stored value the next time the menu opens).
     @objc private func toggleRecordAudio() {
         ShortcutStore.recordAudio = (recordAudioCheckbox.state == .on)
+    }
+
+    @objc private func toggleOrganizeByApp() {
+        ShortcutStore.organizeScreenshotsByApp = organizeCheckbox.state == .on
     }
 
     /// Saves the chosen capture sound and plays a preview.

@@ -105,18 +105,8 @@ enum CaptureController {
                     }
                     capturedApp = capturedApp ?? "" // A new capture must not fall back to an AI app guess.
                 }
-                var savedURL = dest
-                let appComponent = CaptureSourceContext.safeComponent(capturedApp ?? "")
-                if !appComponent.isEmpty {
-                    let stem = dest.deletingPathExtension().lastPathComponent + " - " + appComponent
-                    var candidate = dest.deletingLastPathComponent().appendingPathComponent(stem+"."+ext)
-                    var suffix = 2
-                    while FileManager.default.fileExists(atPath:candidate.path) {
-                        candidate = dest.deletingLastPathComponent().appendingPathComponent(stem+" (\(suffix))."+ext); suffix += 1
-                    }
-                    do { try FileManager.default.moveItem(at:dest,to:candidate); savedURL = candidate }
-                    catch { /* Keep the successful capture under its original name. */ }
-                }
+                let savedURL = isVideo ? dest : CaptureSourceContext.storeCapture(at:dest,appName:capturedApp,
+                    organizeByApp:ShortcutStore.organizeScreenshotsByApp)
                 CaptureSourceContext.write(capturedApp,to:savedURL)
                 let image = isVideo ? (posterFrame(savedURL) ?? videoPlaceholder())
                                     : (NSImage(contentsOf:savedURL) ?? NSImage())
