@@ -6,6 +6,8 @@ All notable changes to SmarterShot. This project follows
 ## [Unreleased]
 
 ### Changed
+- Screenshot previews close gaps when removed and scroll within the screen without
+  a visible scrollbar. Older previews are retained instead of dropping after six.
 - Mouse-wheel zoom in markup and crop mode. Crop zoom keeps the frame fixed;
   trackpad scrolling still pans, with Option-scroll available for zoom.
 - Ground AI descriptions in locally recognized interface text, including selected

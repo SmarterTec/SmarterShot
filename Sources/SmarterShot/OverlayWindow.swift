@@ -3,7 +3,9 @@ import AppKit
 /// The capture overlay that pops into the bottom-left corner right after a
 /// capture. Shows a thumbnail you can drag out, plus quick actions.
 /// Stays until dismissed; multiple overlays stack upward from the corner.
-final class OverlayWindow: NSPanel {
+final class OverlayWindow: NSObject {
+    private let card: NSVisualEffectView
+    private var isDismissing = false
     private let shot: CaptureController.Shot
     private var trashButton: NSButton!
     private var closeArmed = false
@@ -15,8 +17,8 @@ final class OverlayWindow: NSPanel {
     private static let leftMargin: CGFloat = 20
     private static let bottomMargin: CGFloat = 20
     private static let gap: CGFloat = 10
-    /// Cap how many overlays can pile up; the oldest is dropped past this.
-    private static let maxStack = 6
+    private static let host = OverlayStackPanel()
+    private static let document = NSView()
 
     init(shot: CaptureController.Shot) {
         self.shot = shot
@@ -33,21 +35,9 @@ final class OverlayWindow: NSPanel {
 
         let rect = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
 
-        super.init(contentRect: rect,
-                   styleMask: [.borderless, .nonactivatingPanel],
-                   backing: .buffered,
-                   defer: false)
-
-        isFloatingPanel = true
-        level = .statusBar
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        backgroundColor = .clear
-        isOpaque = false
-        hasShadow = true
-        appearance = nil // follow the system light/dark appearance
-
-        // Translucent, appearance-adaptive background.
-        let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: rect.size))
+        card = NSVisualEffectView(frame: rect)
+        super.init()
+        let effect = card
         effect.material = .popover
         effect.blendingMode = .behindWindow
         effect.state = .active
@@ -67,11 +57,11 @@ final class OverlayWindow: NSPanel {
         thumb.layer?.masksToBounds = true
         thumb.layer?.backgroundColor = NSColor(white: 0.5, alpha: 0.15).cgColor
         // Hide the overlay while dragging so only the image moves with the cursor.
-        thumb.onDragWillBegin = { [weak self] in self?.orderOut(nil) }
+        thumb.onDragWillBegin = { [weak self] in self?.card.isHidden = true }
         thumb.onDragEnded = { [weak self] operation in
             guard let self = self else { return }
             if operation.isEmpty {
-                self.orderFront(nil) // cancelled — bring the overlay back
+                self.card.isHidden = false // cancelled — bring the thumbnail back
             } else {
                 self.dismiss()       // dropped somewhere — it's been used
             }
@@ -116,26 +106,15 @@ final class OverlayWindow: NSPanel {
         trashButton.isHidden = true
         effect.addSubview(trashButton)
 
-        contentView = effect
-
+        OverlayWindow.document.addSubview(card)
         OverlayWindow.stack.append(self)
-        // Drop the oldest overlays if we exceed the cap. Remove synchronously
-        // (not via the animated dismiss) so the stack count updates immediately.
-        while OverlayWindow.stack.count > OverlayWindow.maxStack {
-            let oldest = OverlayWindow.stack.removeFirst()
-            oldest.orderOut(nil)
-        }
-        OverlayWindow.restack(animated: false)
-
-        alphaValue = 0
-        orderFront(nil)
+        OverlayWindow.restack(animated: false, revealNewest: true)
+        card.alphaValue = 0
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
-            animator().alphaValue = 1
+            card.animator().alphaValue = 1
         }
     }
-
-    override var canBecomeKey: Bool { true }
 
     private func makeCornerButton(symbol: String, colors: [NSColor],
                                   action: Selector, tip: String) -> NSButton {
@@ -176,21 +155,31 @@ final class OverlayWindow: NSPanel {
     }
 
     /// Re-lay out the whole stack from the bottom-left corner upward.
-    private static func restack(animated: Bool) {
+    private static func restack(animated: Bool, revealNewest: Bool = false) {
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
         let visible = screen.visibleFrame
-        var y = visible.minY + bottomMargin
-        let x = visible.minX + leftMargin
-        for win in stack {
-            let origin = NSPoint(x: x, y: y)
-            if animated {
-                win.animator().setFrameOrigin(origin)
-            } else {
-                win.setFrameOrigin(origin)
-            }
-            y += win.frame.height + gap
+        let oldOffset = host.scroller.contentView.bounds.origin.y
+        var y: CGFloat = 0
+        for overlay in stack {
+            let origin = NSPoint(x:0,y:y)
+            if animated { overlay.card.animator().setFrameOrigin(origin) }
+            else { overlay.card.setFrameOrigin(origin) }
+            y += overlay.card.frame.height + gap
         }
+        let height = max(0,y-gap)
+        let viewportHeight = min(height,max(1,visible.height-bottomMargin*2))
+        host.setFrame(NSRect(x:visible.minX+leftMargin,y:visible.minY+bottomMargin,
+                             width:288,height:viewportHeight),display:true)
+        document.setFrameSize(NSSize(width:288,height:height))
+        if host.scroller.documentView !== document { host.scroller.documentView = document }
+        let maximumOffset = max(0,height-viewportHeight)
+        let offset = revealNewest ? maximumOffset : min(maximumOffset,max(0,oldOffset))
+        host.scroller.contentView.scroll(to:NSPoint(x:0,y:offset))
+        host.scroller.reflectScrolledClipView(host.scroller.contentView)
+        if stack.isEmpty { host.orderOut(nil) } else { host.orderFront(nil) }
     }
+
+    fileprivate static func relayoutForScreenChange() { restack(animated:false) }
 
     /// Dismiss this overlay `seconds` from now (used after the user pastes the
     /// screenshot). The saved file is not affected.
@@ -202,14 +191,16 @@ final class OverlayWindow: NSPanel {
     }
 
     func dismiss() {
+        guard !isDismissing else { return }
+        isDismissing = true
         autoDismissTimer?.invalidate()
         PasteWatcher.shared.forget(self)
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.15
-            animator().alphaValue = 0
+            card.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
             guard let self = self else { return }
-            self.orderOut(nil)
+            self.card.removeFromSuperview()
             OverlayWindow.stack.removeAll { $0 === self }
             OverlayWindow.restack(animated: true)
         })
@@ -221,11 +212,11 @@ final class OverlayWindow: NSPanel {
         // brief pulse to confirm.
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.08
-            animator().alphaValue = 0.6
+            card.animator().alphaValue = 0.6
         } completionHandler: {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.08
-                self.animator().alphaValue = 1.0
+                self.card.animator().alphaValue = 1.0
             }
         }
     }
@@ -247,7 +238,8 @@ final class OverlayWindow: NSPanel {
     }
 
     @objc private func pinAction() {
-        let topLeft = NSPoint(x: frame.midX - 100, y: frame.maxY + 40)
+        let rect = Self.host.convertToScreen(card.convert(card.bounds,to:nil))
+        let topLeft = NSPoint(x:rect.midX-100,y:rect.maxY+40)
         _ = PinnedWindow(image: shot.image, at: topLeft)
         dismiss()
     }
@@ -271,4 +263,25 @@ final class OverlayWindow: NSPanel {
         CaptureController.delete(shot)
         dismiss()
     }
+}
+
+/// A single clipped viewport keeps every thumbnail reachable without placing
+/// windows beyond the display. Native scrolling works without visible scrollers.
+private final class OverlayStackPanel: NSPanel {
+    let scroller = NSScrollView()
+    init() {
+        super.init(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
+        title = "Screenshot Previews"
+        isFloatingPanel = true; level = .statusBar
+        collectionBehavior = [.canJoinAllSpaces,.fullScreenAuxiliary]
+        backgroundColor = .clear; isOpaque = false; hasShadow = false
+        scroller.drawsBackground = false
+        scroller.hasVerticalScroller = false; scroller.hasHorizontalScroller = false
+        scroller.verticalScrollElasticity = .none; scroller.horizontalScrollElasticity = .none
+        contentView = scroller
+        NotificationCenter.default.addObserver(self,selector:#selector(screenChanged),
+            name:NSApplication.didChangeScreenParametersNotification,object:nil)
+    }
+    override var canBecomeKey: Bool { true }
+    @objc private func screenChanged() { OverlayWindow.relayoutForScreenChange() }
 }

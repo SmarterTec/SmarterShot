@@ -94,6 +94,10 @@ they will fail instead of shipping an ad-hoc-signed release when it is absent.
 Run `./test-signing.sh` after a successful build to check that invalid signing
 configuration fails without replacing the last signed bundle.
 
+Screenshot previews stack at the bottom left. Removing one slides those above it
+down. When the stack fills the screen, scroll over it to reach every preview;
+there is no visible scrollbar or six-preview limit.
+
 ## On-device AI tester
 
 Choose **Test On-Device AI…** from SmarterShot's menu-bar menu, select a screenshot,
