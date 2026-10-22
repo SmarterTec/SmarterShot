@@ -170,3 +170,41 @@ NSGraphicsContext.restoreGraphicsState()
 let outside = display.colorAt(x:10,y:10)!.usingColorSpace(.deviceRGB)!
 assert(outside.redComponent > 0.9 && outside.blueComponent > 0.9 && outside.greenComponent < 0.1, "Cropped image must not draw into the surrounding margins")
 print("Display clipping check passed.")
+
+// Exercise actual toolbar actions, not just the canvas model. NSPopUpButton is
+// an NSButton subclass, so a tool-state update must not index it as a tool.
+let editor = MarkupWindow(shot:CaptureController.Shot(url:URL(fileURLWithPath:"/tmp/markup-toolbar-test.png"),image:source)) { _ in }
+let root = editor.window!.contentView!
+let toolbar = root.subviews.compactMap { $0 as? NSStackView }.first {
+    $0.arrangedSubviews.contains { ($0 as? NSButton)?.action == NSSelectorFromString("selectTool:") }
+}!
+let editedCanvas = root.subviews.compactMap { $0 as? NSScrollView }.first!.documentView as! MarkupCanvas
+let toolButtons = toolbar.arrangedSubviews.compactMap { $0 as? NSButton }.filter { $0.action == NSSelectorFromString("selectTool:") }
+let lineWidth = toolbar.arrangedSubviews.compactMap { $0 as? NSPopUpButton }.first!
+let widthTitle = lineWidth.titleOfSelectedItem
+for tool in MarkupCanvas.Tool.allCases {
+    let button = toolButtons.first { $0.title == tool.rawValue }!
+    assert(NSApp.sendAction(button.action!,to:button.target,from:button))
+    assert(editedCanvas.tool == tool, "Toolbar must select the requested tool")
+    assert(button.state == .on)
+    assert(toolButtons.filter { $0.state == .on }.count == 1)
+    assert(lineWidth.titleOfSelectedItem == widthTitle, "Tool changes must not affect line width")
+}
+// Completing the crop also switches the toolbar back to Select. Exercise
+// that second callback through the real editor rather than the isolated canvas.
+func editorEvent(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent {
+    NSEvent.mouseEvent(with:type,location:editedCanvas.convert(point,to:nil),modifierFlags:[],timestamp:0,
+        windowNumber:editor.window!.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
+}
+editedCanvas.mouseDown(with:editorEvent(.leftMouseDown,NSPoint(x:50,y:50)))
+editedCanvas.mouseDragged(with:editorEvent(.leftMouseDragged,NSPoint(x:250,y:200)))
+editedCanvas.mouseUp(with:editorEvent(.leftMouseUp,NSPoint(x:250,y:200)))
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
+assert(editedCanvas.tool == .select)
+assert(abs(editedCanvas.bounds.width-200)<0.01 && abs(editedCanvas.bounds.height-150)<0.01)
+assert(toolButtons.first { $0.title == "Select" }!.state == .on)
+editedCanvas.undoEdit()
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4))
+assert(abs(editedCanvas.bounds.width-400)<0.01)
+editor.close()
+print("Toolbar checks passed: all tool buttons including Crop; unrelated controls untouched.")

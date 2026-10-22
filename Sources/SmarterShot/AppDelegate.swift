@@ -20,13 +20,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var recordAudioMenuItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Register with the Screen Recording privacy system so SmarterShot appears
-        // in the list and can be granted; shows the prompt if not yet determined.
+        // Check quietly at launch. Only a user-initiated capture may request
+        // screen access; restarting after a crash must not trigger a new prompt.
         let hasCapture = CGPreflightScreenCaptureAccess()
         CaptureController.log("LAUNCH ScreenCapture preflight=\(hasCapture)")
-        if !hasCapture {
-            CGRequestScreenCaptureAccess()
-        }
 
         setupStatusItem()
         rebind(warnOnFailure: false)
@@ -172,11 +169,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         PasteWatcher.shared.noteCopied(overlay: overlay) // watch for ⌘V of this shot
     }
 
+    private func canCapture() -> Bool {
+        CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess()
+    }
+
     @objc private func captureArea() {
+        guard canCapture() else { return }
         CaptureController.captureArea { [weak self] shot in self?.present(shot) }
     }
 
     @objc private func captureWindow() {
+        guard canCapture() else { return }
         CaptureController.captureWindow { [weak self] shot in self?.present(shot) }
     }
 
@@ -200,6 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             ScreenRecorder.shared.stop()
             return
         }
+        guard canCapture() else { return }
         SelectionOverlay.present(mode: mode) { [weak self] target in
             guard let self = self else { return }
             guard let target = target else {

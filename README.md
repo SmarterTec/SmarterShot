@@ -46,6 +46,9 @@ open /Applications/SmarterShot.app
 macOS will ask for **Screen Recording** permission the first time you capture:
 **System Settings → Privacy & Security → Screen Recording → enable SmarterShot**,
 then trigger the capture again. This is a macOS requirement for any screenshot tool.
+Startup checks access without prompting. Optional auto-dismissal after pasting
+uses Accessibility only if already granted; taking screenshots does not request
+Accessibility permission.
 
 ### Hotkeys and the native shortcuts
 SmarterShot uses `⇧⌘4` and `⇧⌘5`. macOS assigns those to its own screenshot

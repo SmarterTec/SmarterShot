@@ -25,6 +25,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSComboBoxDelega
         let tools = NSStackView()
         tools.orientation = .horizontal
         tools.spacing = 4
+        var toolButtons: [NSButton] = []
         for (index, tool) in MarkupCanvas.Tool.allCases.enumerated() {
             let button = NSButton(title: tool.rawValue, target: self, action: #selector(selectTool(_:)))
             button.tag = index
@@ -33,12 +34,14 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSComboBoxDelega
             button.state = tool == canvas.tool ? .on : .off
             button.setAccessibilityLabel(tool.rawValue)
             tools.addArrangedSubview(button)
+            toolButtons.append(button)
         }
-        canvas.onToolChanged = { [weak canvas, weak tools, weak status] in
+        canvas.onToolChanged = { [weak canvas, weak status, toolButtons] in
             guard let canvas = canvas else { return }
-            for view in tools?.arrangedSubviews ?? [] {
-                guard let button = view as? NSButton else { continue }
-                button.state = MarkupCanvas.Tool.allCases[button.tag] == canvas.tool ? .on : .off
+            // Only drawing-tool buttons participate: NSPopUpButton is also an
+            // NSButton, but its default tag is not a drawing-tool index.
+            for (index, button) in toolButtons.enumerated() {
+                button.state = MarkupCanvas.Tool.allCases[index] == canvas.tool ? .on : .off
             }
             status?.stringValue = canvas.tool == .select
                 ? "Select · Drag to move. Drag the text corner to resize. Double-click text to edit; use Edit Points for shape handles."
@@ -147,6 +150,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSComboBoxDelega
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
     func windowWillClose(_ notification: Notification) { Self.editors.removeAll { $0 === self } }
     @objc private func selectTool(_ sender: NSButton) {
+        guard MarkupCanvas.Tool.allCases.indices.contains(sender.tag) else { return }
         canvas.tool = MarkupCanvas.Tool.allCases[sender.tag]
         window?.makeFirstResponder(canvas)
     }

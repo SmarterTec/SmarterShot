@@ -9,7 +9,6 @@ final class PasteWatcher {
     static let shared = PasteWatcher()
 
     private var monitor: Any?
-    private var promptedForAX = false
     private weak var lastOverlay: OverlayWindow?
     private var lastChangeCount = -1
 
@@ -30,12 +29,10 @@ final class PasteWatcher {
 
         let trusted = AXIsProcessTrusted()
         CaptureController.log("PasteWatcher.ensureMonitor trusted=\(trusted)")
-        // Global key events require Accessibility trust. Prompt once.
-        if !trusted && !promptedForAX {
-            promptedForAX = true
-            let opts = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(opts)
-        }
+        // Paste-dismissal is optional. Never ask for Accessibility access as a
+        // side effect of taking a screenshot, especially after every restart.
+        // Users who already granted it still get automatic paste dismissal.
+        guard trusted else { return }
 
         monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self, let overlay = self.lastOverlay else { return }
