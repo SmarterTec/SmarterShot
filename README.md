@@ -44,7 +44,7 @@ Built with Swift + AppKit. The whole app is a ~200 KB bundle using ~40 MB RAM.
 
 ## Requirements
 - macOS 13 or later
-- Xcode Command Line Tools (no full Xcode needed): `xcode-select --install`
+- Xcode 27 Command Line Tools or newer (no full Xcode needed): `xcode-select --install`
 
 ## Build & install
 ```sh
@@ -92,6 +92,24 @@ its keychain. CI releases must provision the intended identity before building;
 they will fail instead of shipping an ad-hoc-signed release when it is absent.
 Run `./test-signing.sh` after a successful build to check that invalid signing
 configuration fails without replacing the last signed bundle.
+
+## On-device AI tester
+
+Choose **Test On-Device AI…** from SmarterShot's menu-bar menu, select a screenshot,
+and click **Analyze**. Apple's on-device model suggests a filename and a short
+preview description. Both results are editable; **Try Again** generates another
+suggestion and **Copy Suggestions** copies your reviewed text.
+
+This is a manual, read-only tester: images are not renamed or modified, and new
+captures are not analyzed automatically. Generation uses only Apple's
+`SystemLanguageModel` on this Mac, with no cloud provider, API key, or fallback.
+Image analysis needs macOS 27 and Apple Intelligence enabled with its model ready.
+The tester explains unavailability instead of switching services. Descriptions
+may be inaccurate; review samples before using them for filenames or metadata.
+
+For a local check: `./test-ai.sh` exercises read-only UI behavior, cancellation,
+and image switching. To test the actual model with a chosen local image, use
+`./test-ai.sh /absolute/path/to/screenshot.png`.
 
 ## In-app updates
 

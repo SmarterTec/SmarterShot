@@ -1,0 +1,61 @@
+import AppKit
+
+@MainActor func drain() async { for _ in 0..<8 { await Task.yield() } }
+@MainActor func checks() async throws {
+    _ = NSApplication.shared
+    let folder = URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ai-tests/fixtures")
+    try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+    let rep = NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:400,pixelsHigh:300,bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0)!
+    let bytes = rep.representation(using:.png,properties:[:])!
+    let first = folder.appendingPathComponent("first.png"), second = folder.appendingPathComponent("second.png")
+    try bytes.write(to:first); try bytes.write(to:second)
+    var replies:[URL:CheckedContinuation<ScreenshotAISuggestion,Never>] = [:]
+    let tester = AITesterWindow { url in await withCheckedContinuation { replies[url] = $0 } }
+    tester.loadScreenshot(first); tester.analyze(); await drain()
+    assert(tester.isAnalyzing && replies[first] != nil)
+    tester.loadScreenshot(second); tester.analyze(); await drain()
+    assert(tester.isAnalyzing && replies[second] != nil)
+    replies[second]!.resume(returning:ScreenshotAISuggestion(filename:"Second Image.png",description:"The newer image."))
+    await drain()
+    assert(tester.suggestedFilename == "second-image.png" && tester.suggestedDescription == "The newer image.")
+    // Deliberately complete an analyzer that ignores cancellation. Its old
+    // response must never replace the currently selected screenshot's results.
+    replies[first]!.resume(returning:ScreenshotAISuggestion(filename:"wrong",description:"Outdated result"))
+    await drain()
+    assert(tester.suggestedFilename == "second-image.png")
+    tester.analyze(); await drain(); tester.cancelAnalysis()
+    replies[second]!.resume(returning:ScreenshotAISuggestion(filename:"canceled",description:"Must not appear"))
+    await drain()
+    assert(!tester.isAnalyzing && tester.suggestedFilename == "second-image.png")
+    let afterFirst = try Data(contentsOf:first), afterSecond = try Data(contentsOf:second)
+    assert(afterFirst == bytes && afterSecond == bytes,"Preview testing must never modify source files")
+    tester.window?.contentView?.layoutSubtreeIfNeeded()
+    func views(_ v:NSView)->[NSView] { [v]+v.subviews.flatMap(views) }
+    let fields = views(tester.window!.contentView!)
+    assert(fields.compactMap { $0 as? NSTextField }.contains { $0.isEditable && $0.stringValue == "second-image.png" })
+    assert(fields.compactMap { $0 as? NSTextView }.contains { $0.isEditable && $0.string == "The newer image." })
+    tester.close()
+    let failing = AITesterWindow { _ in throw ScreenshotAIService.Failure.unavailable("On-device model unavailable") }
+    failing.loadScreenshot(first); failing.analyze(); await drain()
+    assert(!failing.isAnalyzing && failing.statusMessage.contains("On-device model unavailable"))
+    assert(failing.suggestedFilename.isEmpty && failing.suggestedDescription.isEmpty)
+    failing.close()
+    do { _ = try await ScreenshotAIService.describe(URL(string:"https://example.com/screenshot.png")!); assertionFailure("Remote image URLs must be rejected") }
+    catch ScreenshotAIService.Failure.invalidImage {}
+    assert(ScreenshotAISuggestion(filename:"../../A:B/C.PNG",description:" a\n b ").filenameStem == "a-b-c")
+    print("AI tester checks passed: read-only previews, editable results, cancellation, stale-result rejection, unavailable model, and local files only.")
+    if CommandLine.arguments.count == 2 {
+        let url = URL(fileURLWithPath:CommandLine.arguments[1])
+        let before = try Data(contentsOf:url)
+        let suggestion = try await ScreenshotAIService.describe(url)
+        let after = try Data(contentsOf:url)
+        assert(after == before)
+        print("On-device filename: \(suggestion.filenameStem)")
+        print("On-device description: \(suggestion.description)")
+    }
+}
+Task { @MainActor in
+    do { try await checks(); exit(0) }
+    catch { fputs("AI check failed: \(error)\n",stderr); exit(1) }
+}
+RunLoop.main.run()

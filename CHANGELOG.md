@@ -5,6 +5,11 @@ All notable changes to SmarterShot. This project follows
 
 ## [Unreleased]
 
+### Added
+- On-device AI tester: choose a screenshot, review editable filename and description
+  suggestions, retry, or copy the results. Uses only Apple's local model, with no
+  cloud fallback. No automatic analysis or file renaming is enabled yet.
+
 ## [1.4.0] - 2026-10-22
 
 ### Added

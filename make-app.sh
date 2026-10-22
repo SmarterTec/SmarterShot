@@ -20,6 +20,12 @@ if ! security find-identity -v -p codesigning "$SIGN_KC" | grep -Fqi "$SIGN_ID";
     exit 1
 fi
 
+SDK_MAJOR="$(xcrun --show-sdk-version | cut -d. -f1)"
+if [[ "$SDK_MAJOR" -lt 27 ]]; then
+    echo "Building the on-device AI tester requires Command Line Tools for Xcode 27 or newer." >&2
+    exit 1
+fi
+
 echo "Building release binary..."
 # Use the standalone SwiftPM engine with Command Line Tools (no Xcode project).
 swift build --build-system native -c release >/dev/null
