@@ -97,7 +97,14 @@ configuration fails without replacing the last signed bundle.
 Screenshot previews use native Liquid Glass on macOS 26 and later (a translucent
 fallback on older versions) and stack at the bottom left. Removing one slides those above it
 down. When the stack fills the screen, scroll over it to reach every preview;
-there is no visible scrollbar or six-preview limit.
+there is no visible scrollbar or six-preview limit. Compact native glass controls
+float over the thumbnail. Below it, review the saved filename and the on-device
+AI description. Filename suggestions retain the timestamp and app name when
+identified; edit a suggestion and click its checkmark to rename. Existing files
+are never overwritten, and renaming is blocked while that image is open in markup.
+Descriptions and suggested names are editable in the preview. Captures save and
+appear immediately; automatic on-device analysis runs afterward, one image at a
+time. Dismissing a preview cancels its analysis. Videos are not analyzed.
 
 ## On-device AI tester
 
@@ -110,8 +117,9 @@ text recognition reads visible interface labels to help ground the on-device
 model's filename and short preview description. Both results are editable; **Try Again** generates another
 suggestion and **Copy Suggestions** copies your reviewed text.
 
-This is a manual, read-only tester: images are not renamed or modified, and new
-captures are not analyzed automatically. Generation uses only Apple's
+The separate tester is manual and read-only: images are not renamed or modified
+by its analysis or Copy action. Capture previews also analyze images in the
+background and offer a separate explicit checkmark action to accept a filename. Generation uses only Apple's
 `SystemLanguageModel` on this Mac, with no cloud provider, API key, or fallback.
 Image analysis needs macOS 27 and Apple Intelligence enabled with its model ready.
 The tester explains unavailability instead of switching services. Descriptions

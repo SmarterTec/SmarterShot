@@ -53,9 +53,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
         scroll.documentView = canvas
         scroll.backgroundColor = .underPageBackgroundColor
         scroll.borderType = .noBorder
-        let inspector = NSVisualEffectView()
-        inspector.material = .headerView
-        inspector.blendingMode = .withinWindow
+        let inspector = NSView()
         let fields = NSStackView()
         fields.orientation = .vertical
         fields.alignment = .leading
@@ -124,7 +122,8 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
         let fit = NSButton(title:"Fit",target:self,action:#selector(fitImage))
         let minus = NSButton(image:NSImage(systemSymbolName:"minus.magnifyingglass",accessibilityDescription:"Zoom out")!,target:self,action:#selector(zoomOut))
         let plus = NSButton(image:NSImage(systemSymbolName:"plus.magnifyingglass",accessibilityDescription:"Zoom in")!,target:self,action:#selector(zoomIn))
-        let zoom = NSStackView(views:[minus,fit,plus]); zoom.spacing = 4
+        for button in [minus,fit,plus] { styleGlassButton(button) }
+        let zoom = NSStackView(views:[minus,fit,plus]); zoom.spacing = 8
         let footer = NSView()
         for view in [dimensions,zoom] { footer.addSubview(view); view.translatesAutoresizingMaskIntoConstraints = false }
         NSLayoutConstraint.activate([
@@ -153,6 +152,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
         refreshInspector()
     }
     required init?(coder:NSCoder) { fatalError("init(coder:) not used") }
+    static func isEditing(url:URL) -> Bool { editors.contains { $0.source == url } }
     static var hasUnsavedEditors: Bool { editors.contains { $0.canvas.hasUnsavedChanges } }
     static func reviewBeforeQuitting(completion:@escaping (Bool)->Void) {
         let open = editors
@@ -200,7 +200,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
             let symbols = ["cursorarrow","pencil.tip","point.topleft.down.to.point.bottomright.curvepath","line.diagonal","arrow.up.right","rectangle","oval","textformat","highlighter","crop"]
             let b = NSButton(image:NSImage(systemSymbolName:symbols[index],accessibilityDescription:tool.rawValue) ?? NSImage(),target:self,action:#selector(selectTool(_:)))
             b.title = ""; b.imagePosition = .imageOnly
-            b.tag = index; b.setButtonType(.pushOnPushOff); b.bezelStyle = .texturedRounded
+            b.tag = index; b.setButtonType(.pushOnPushOff); styleGlassButton(b)
             b.toolTip = tool == .sketch ? "Sketch — draw and hold to recognize a shape" : tool.rawValue
             b.setAccessibilityLabel(tool.rawValue)
             b.widthAnchor.constraint(equalToConstant:32).isActive = true
@@ -224,10 +224,14 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
             }
             let b = id.rawValue == "save" ? NSButton(title:"Save…",target:self,action:action)
                 : NSButton(image:NSImage(systemSymbolName:symbol,accessibilityDescription:title) ?? NSImage(),target:self,action:action)
-            b.bezelStyle = .texturedRounded; b.toolTip = title; b.setAccessibilityLabel(title)
+            styleGlassButton(b); b.toolTip = title; b.setAccessibilityLabel(title)
             item.view = b; item.label = title
         }
         return item
+    }
+    private func styleGlassButton(_ button:NSButton) {
+        if #available(macOS 26.0, *) { button.bezelStyle = .glass; button.borderShape = .capsule }
+        else { button.bezelStyle = .texturedRounded }
     }
     @objc private func showFormatting(_ sender:NSButton) {
         if formatting.isShown { formatting.performClose(sender) }

@@ -6,7 +6,18 @@ import AppKit
 final class OverlayWindow: NSObject {
     private let card: NSView
     private var isDismissing = false
-    private let shot: CaptureController.Shot
+    private var shot: CaptureController.Shot
+    private let thumbnail: DraggableImageView
+    private let filenameLabel = NSTextField(wrappingLabelWithString: "")
+    private let suggestedName = NSTextField(string: "")
+    private let descriptionLabel = NSTextField(wrappingLabelWithString: "")
+    private let acceptName = NSButton()
+    private let analyzer: @MainActor (URL) async throws -> ScreenshotAISuggestion
+    private var analysisTask: Task<Void,Never>?
+    private static var analysisTail: Task<Void,Never>?
+    private static let cornerRadius: CGFloat = 20
+    private static let padding: CGFloat = 12
+    static let fileRenamed = Notification.Name("SmarterShot.fileRenamed")
     private var trashButton: NSButton!
     private var closeArmed = false
     private var autoDismissTimer: Timer?
@@ -20,27 +31,29 @@ final class OverlayWindow: NSObject {
     private static let host = OverlayStackPanel()
     private static let document = NSView()
 
-    init(shot: CaptureController.Shot) {
+    init(shot: CaptureController.Shot, analyzeAutomatically: Bool = true, analyzer: @escaping @MainActor (URL) async throws -> ScreenshotAISuggestion = ScreenshotAIService.describe) {
         self.shot = shot
+        self.analyzer = analyzer
 
         let panelWidth: CGFloat = 288
-        let pad: CGFloat = 12
+        let pad = Self.padding
         let thumbW = panelWidth - pad * 2
         let img = shot.image
         let aspect = img.size.width > 0 ? img.size.height / img.size.width : 0.66
         let thumbH = min(180, max(96, thumbW * aspect))
-        let toolbarH: CGFloat = 46
-        let thumbY = pad + toolbarH + 8
+        let metadataHeight: CGFloat = 126
+        let thumbY = pad + metadataHeight + 8
         let panelHeight = thumbY + thumbH + pad
 
         let rect = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
 
+        thumbnail = DraggableImageView(frame:NSRect(x:pad,y:thumbY,width:thumbW,height:thumbH))
         let controls = NSView(frame: rect)
         controls.autoresizingMask = [.width,.height]
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView(frame:rect)
             glass.style = .regular
-            glass.cornerRadius = 20
+            glass.cornerRadius = Self.cornerRadius
             if #available(macOS 27.0, *) { glass.effectIsInteractive = true }
             // Content must live in contentView so AppKit composites it above glass.
             glass.contentView = controls
@@ -51,7 +64,8 @@ final class OverlayWindow: NSObject {
             backdrop.blendingMode = .behindWindow
             backdrop.state = .active
             backdrop.wantsLayer = true
-            backdrop.layer?.cornerRadius = 20
+            backdrop.layer?.cornerRadius = Self.cornerRadius
+            backdrop.layer?.cornerCurve = .continuous
             backdrop.layer?.masksToBounds = true
             backdrop.addSubview(controls)
             card = backdrop
@@ -60,12 +74,13 @@ final class OverlayWindow: NSObject {
         let effect = controls
 
         // Thumbnail (draggable out).
-        let thumb = DraggableImageView(frame: NSRect(x: pad, y: thumbY, width: thumbW, height: thumbH))
+        let thumb = thumbnail
         thumb.image = img
         thumb.fileURL = shot.url
         thumb.imageScaling = .scaleProportionallyUpOrDown
         thumb.wantsLayer = true
-        thumb.layer?.cornerRadius = 10
+        thumb.layer?.cornerRadius = Self.cornerRadius - pad
+        thumb.layer?.cornerCurve = .continuous
         thumb.layer?.masksToBounds = true
         thumb.layer?.backgroundColor = NSColor(white: 0.5, alpha: 0.15).cgColor
         // Hide the overlay while dragging so only the image moves with the cursor.
@@ -87,18 +102,17 @@ final class OverlayWindow: NSObject {
             ("pin", "Pin", #selector(pinAction)),
             ("pencil.tip.crop.circle", "Markup", #selector(markupAction)),
         ]
-        let btnW = (panelWidth - pad * 2) / CGFloat(tools.count)
         for (i, tool) in tools.enumerated() {
             let b = makeToolButton(symbol: tool.0, title: tool.1, action: tool.2)
-            b.frame = NSRect(x: pad + CGFloat(i) * btnW, y: pad, width: btnW, height: toolbarH - 6)
+            b.frame = NSRect(x:pad+8+CGFloat(i)*40,y:panelHeight-pad-8-32,width:32,height:32)
             if tool.1 == "Markup" { b.isEnabled = !shot.isVideo }
             effect.addSubview(b)
         }
 
         // Close ✕ and trash, inset into the thumbnail's top-right corner so the
         // rounded corner doesn't clip them. Aligned on one row with a shadow.
-        let iconSize: CGFloat = 26
-        let inset: CGFloat = 6
+        let iconSize: CGFloat = 32
+        let inset: CGFloat = 8
         let cornerY = panelHeight - pad - inset - iconSize
         let closeX = panelWidth - pad - inset - iconSize
 
@@ -118,6 +132,39 @@ final class OverlayWindow: NSObject {
         trashButton.isHidden = true
         effect.addSubview(trashButton)
 
+        filenameLabel.frame = NSRect(x:pad,y:pad+94,width:thumbW,height:32)
+        filenameLabel.font = .systemFont(ofSize:11,weight:.semibold)
+        filenameLabel.maximumNumberOfLines = 2
+        filenameLabel.lineBreakMode = .byTruncatingMiddle
+        filenameLabel.isSelectable = true
+        filenameLabel.setAccessibilityLabel("Saved filename")
+        filenameLabel.stringValue = shot.url.lastPathComponent
+        filenameLabel.toolTip = shot.url.lastPathComponent
+        effect.addSubview(filenameLabel)
+        suggestedName.frame = NSRect(x:pad,y:pad+65,width:thumbW-32,height:24)
+        suggestedName.font = .systemFont(ofSize:11)
+        suggestedName.placeholderString = "Suggested filename"
+        suggestedName.setAccessibilityLabel("Suggested filename, editable")
+        suggestedName.isHidden = true
+        effect.addSubview(suggestedName)
+        acceptName.frame = NSRect(x:panelWidth-pad-28,y:pad+65,width:28,height:24)
+        acceptName.image = NSImage(systemSymbolName:"checkmark",accessibilityDescription:"Use suggested filename")
+        acceptName.imagePosition = .imageOnly
+        acceptName.bezelStyle = .rounded
+        acceptName.target = self; acceptName.action = #selector(acceptSuggestedName)
+        acceptName.toolTip = "Rename this file using the reviewed name"
+        acceptName.setAccessibilityLabel("Use suggested filename")
+        acceptName.isHidden = true
+        effect.addSubview(acceptName)
+        descriptionLabel.frame = NSRect(x:pad,y:pad,width:thumbW,height:57)
+        descriptionLabel.font = .systemFont(ofSize:11)
+        descriptionLabel.textColor = .secondaryLabelColor
+        descriptionLabel.maximumNumberOfLines = 3
+        descriptionLabel.isSelectable = true
+        descriptionLabel.setAccessibilityLabel("Screenshot description")
+        descriptionLabel.stringValue = shot.isVideo ? "Screen recording" : "Description pending"
+        effect.addSubview(descriptionLabel)
+
         OverlayWindow.document.addSubview(card)
         OverlayWindow.stack.append(self)
         OverlayWindow.restack(animated: false, revealNewest: true)
@@ -126,6 +173,67 @@ final class OverlayWindow: NSObject {
             ctx.duration = 0.15
             card.animator().alphaValue = 1
         }
+        if analyzeAutomatically && !shot.isVideo { startAnalysis() }
+    }
+
+    private func startAnalysis() {
+        // Serialize automatic work so a burst of screenshots doesn't run many
+        // local models at once. Waiting never blocks capture, saving or dragging.
+        descriptionLabel.stringValue = "Waiting for on-device description…"
+        let previous = Self.analysisTail
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard !Task.isCancelled,let self = self,!self.isDismissing else { return }
+            self.descriptionLabel.stringValue = "Describing on this Mac…"
+            do {
+                let result = try await self.analyzer(self.shot.url)
+                guard !Task.isCancelled,!self.isDismissing else { return }
+                self.showSuggestion(result)
+            } catch {
+                guard !Task.isCancelled,!self.isDismissing else { return }
+                self.descriptionLabel.stringValue = error.localizedDescription
+                self.descriptionLabel.toolTip = error.localizedDescription
+            }
+        }
+        analysisTask = task; Self.analysisTail = task
+    }
+
+    func showSuggestion(_ result: ScreenshotAISuggestion) {
+        suggestedName.stringValue = result.suggestedFilename(for:shot.url)
+        suggestedName.isHidden = false; acceptName.isHidden = false
+        descriptionLabel.stringValue = result.description
+        descriptionLabel.toolTip = result.description
+        descriptionLabel.isEditable = true
+    }
+
+    @objc private func acceptSuggestedName() {
+        do { try useSuggestedFilename() }
+        catch {
+            let alert = NSAlert(error:error)
+            NSApp.activate(ignoringOtherApps:true)
+            alert.beginSheetModal(for:Self.host)
+        }
+    }
+
+    /// Only the explicit checkmark action may move a saved file. Never overwrite
+    /// another screenshot, change its image extension, or invalidate an open editor.
+    func useSuggestedFilename() throws {
+        let name = suggestedName.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard !name.isEmpty,!name.contains("/"),!name.contains(":"),!name.contains("\n"),
+              name.utf8.count <= 240,(name as NSString).pathExtension.lowercased() == shot.url.pathExtension.lowercased(),
+              !MarkupWindow.isEditing(url:shot.url) else {
+            throw NSError(domain:"SmarterShot",code:1,userInfo:[NSLocalizedDescriptionKey:"Choose a valid filename with the same image extension, and finish open markup before renaming."])
+        }
+        let original = shot.url
+        let destination = original.deletingLastPathComponent().appendingPathComponent(name)
+        if destination != original { try FileManager.default.moveItem(at:original,to:destination) }
+        for overlay in Self.stack where overlay.shot.url == original {
+            overlay.shot = CaptureController.Shot(url:destination,image:overlay.shot.image,isVideo:overlay.shot.isVideo)
+            overlay.thumbnail.fileURL = destination
+            overlay.filenameLabel.stringValue = name; overlay.filenameLabel.toolTip = name
+            overlay.suggestedName.isHidden = true; overlay.acceptName.isHidden = true
+        }
+        NotificationCenter.default.post(name:Self.fileRenamed,object:nil,userInfo:["oldURL":original,"newURL":destination])
     }
 
     private func makeCornerButton(symbol: String, colors: [NSColor],
@@ -151,9 +259,12 @@ final class OverlayWindow: NSObject {
 
     private func makeToolButton(symbol: String, title: String, action: Selector) -> NSButton {
         let b = NSButton()
-        b.isBordered = false
-        b.imagePosition = .imageAbove
-        b.title = title
+        b.isBordered = true
+        b.imagePosition = .imageOnly
+        b.title = ""
+        if #available(macOS 26.0, *) { b.bezelStyle = .glass; b.borderShape = .capsule }
+        else { b.bezelStyle = .texturedRounded }
+        b.setAccessibilityLabel(title)
         b.font = .systemFont(ofSize: 11)
         b.contentTintColor = .labelColor
         b.toolTip = title
@@ -209,6 +320,7 @@ final class OverlayWindow: NSObject {
     func dismiss() {
         guard !isDismissing else { return }
         isDismissing = true
+        analysisTask?.cancel()
         autoDismissTimer?.invalidate()
         PasteWatcher.shared.forget(self)
         NSAnimationContext.runAnimationGroup({ ctx in

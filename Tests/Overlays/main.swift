@@ -1,7 +1,7 @@
 import AppKit
 
 enum CaptureController {
-    struct Shot { let url:URL; let image:NSImage; var isVideo:Bool { false } }
+    struct Shot { let url:URL; let image:NSImage; var isVideo = false }
     static func copyToClipboard(_ shot:Shot) {}
     static func delete(_ shot:Shot) {}
 }
@@ -11,6 +11,8 @@ final class PasteWatcher {
     func noteCopied(overlay:OverlayWindow) {}
 }
 final class MarkupWindow {
+    static var editing = false
+    static func isEditing(url:URL)->Bool { editing }
     init(shot:CaptureController.Shot,onSave:@escaping(CaptureController.Shot)->Void) {}
 }
 final class PinnedWindow {
@@ -20,7 +22,7 @@ let app = NSApplication.shared
 func settle() { RunLoop.main.run(until:Date(timeIntervalSinceNow:0.4)) }
 func add(_ index:Int) {
     let image = NSImage(size:NSSize(width:400,height:index % 2 == 0 ? 300 : 160))
-    _ = OverlayWindow(shot:.init(url:URL(fileURLWithPath:"/tmp/overlay-test-\(index).png"),image:image))
+    _ = OverlayWindow(shot:.init(url:URL(fileURLWithPath:"/tmp/overlay-test-\(index).png"),image:image),analyzeAutomatically:false)
 }
 add(0); add(1); add(2)
 settle()
@@ -77,3 +79,58 @@ add(20); settle()
 assert(panel.isVisible && scroll.contentView.bounds.minY == 0)
 OverlayWindow.stack[0].dismiss(); settle()
 print("Overlay stack checks passed: animated gap closure, unlimited retained previews, bounded viewport, hidden scrollbars, full scroll range, drag cancel/drop, idempotent removal and empty/reopen.")
+
+// Suggestions are review-only until explicitly accepted; renaming preserves
+// bytes, rejects collisions/traversal and leaves open markup paths untouched.
+let fixtures = URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent(".build/overlay-tests/fixtures")
+try FileManager.default.createDirectory(at:fixtures,withIntermediateDirectories:true)
+let original = fixtures.appendingPathComponent("SmarterShot 2026-10-21 at 08.57.48.png")
+let expected = fixtures.appendingPathComponent("2026-10-21 at 08.57.48 - Blender - rear-bumper.png")
+try? FileManager.default.removeItem(at:expected)
+try Data([1,2,3]).write(to:original)
+let review = OverlayWindow(shot:.init(url:original,image:NSImage(size:NSSize(width:400,height:300))),analyzeAutomatically:false)
+review.showSuggestion(ScreenshotAISuggestion(filename:"rear-bumper",description:"A rear bumper model.",appName:"Blender"))
+assert(FileManager.default.fileExists(atPath:original.path) && !FileManager.default.fileExists(atPath:expected.path))
+let cardViews = children(document.subviews.last!)
+let nameField = cardViews.compactMap { $0 as? NSTextField }.first { $0.placeholderString == "Suggested filename" }!
+let previewImage = cardViews.compactMap { $0 as? DraggableImageView }.first!
+assert(previewImage.layer!.cornerRadius == 8,"Thumbnail radius must equal parent radius minus padding")
+let actions = cardViews.compactMap { $0 as? NSButton }.filter { ["Copy","Reveal","Pin","Markup"].contains($0.toolTip ?? "") }
+assert(actions.count == 4 && actions.allSatisfy { $0.title.isEmpty && $0.frame.minY > previewImage.frame.minY })
+MarkupWindow.editing = true
+do { try review.useSuggestedFilename(); assertionFailure("Must not rename files in an open editor") } catch {}
+MarkupWindow.editing = false
+try Data([9]).write(to:expected)
+do { try review.useSuggestedFilename(); assertionFailure("Must not overwrite an existing file") } catch {}
+let existingBytes = try Data(contentsOf:expected)
+assert(existingBytes == Data([9]))
+try FileManager.default.removeItem(at:expected)
+nameField.stringValue = "../outside.png"
+do { try review.useSuggestedFilename(); assertionFailure("Must reject path traversal") } catch {}
+nameField.stringValue = expected.lastPathComponent
+try review.useSuggestedFilename()
+assert(!FileManager.default.fileExists(atPath:original.path) && previewImage.fileURL == expected)
+let renamedBytes = try Data(contentsOf:expected)
+assert(renamedBytes == Data([1,2,3]))
+review.dismiss(); settle()
+print("Preview layout and filename checks passed: top controls, concentric corners, editable suggestions, explicit rename, collision/path/editor protection and updated drag URL.")
+
+var analysisReplies:[CheckedContinuation<ScreenshotAISuggestion,Never>] = []
+let delayed: @MainActor(URL) async throws -> ScreenshotAISuggestion = { _ in
+    await withCheckedContinuation { analysisReplies.append($0) }
+}
+let queuedFirst = OverlayWindow(shot:.init(url:expected,image:NSImage(size:NSSize(width:400,height:300))),analyzer:delayed)
+let queuedSecond = OverlayWindow(shot:.init(url:expected,image:NSImage(size:NSSize(width:400,height:300))),analyzer:delayed)
+assert(OverlayWindow.stack.count == 2 && panel.isVisible,"Previews must appear before AI finishes")
+settle()
+assert(analysisReplies.count == 1,"Automatic model work should be serialized")
+queuedFirst.dismiss()
+analysisReplies[0].resume(returning:ScreenshotAISuggestion(filename:"stale",description:"Canceled result"))
+settle()
+assert(analysisReplies.count == 2)
+analysisReplies[1].resume(returning:ScreenshotAISuggestion(filename:"reviewed",description:"Ready description"))
+settle()
+assert(!children(document).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Canceled result" })
+assert(children(document).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Ready description" })
+queuedSecond.dismiss(); settle()
+print("Background analysis checks passed: immediate preview, serialized work, cancellation and no stale results.")

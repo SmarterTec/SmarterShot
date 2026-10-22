@@ -6,6 +6,12 @@ All notable changes to SmarterShot. This project follows
 ## [Unreleased]
 
 ### Changed
+- Preview controls float over the image using native glass capsules; the saved
+  filename, editable AI name suggestion and description appear below it.
+- On-device preview descriptions run after capture in a background queue. Accept
+  filename suggestions explicitly; preserve existing files and open markup paths.
+- Markup uses native glass tool/zoom controls and the system popover background.
+- Thumbnail corners follow the concentric parent-radius-minus-inset relationship.
 - Native Liquid Glass screenshot bubbles on macOS 26 and later, with interactive
   glass feedback on macOS 27 and a translucent fallback on older systems.
 - Screenshot previews close gaps when removed and scroll within the screen without
@@ -20,7 +26,7 @@ All notable changes to SmarterShot. This project follows
 ### Added
 - On-device AI tester: choose a screenshot, review editable filename and description
   suggestions, retry, or copy the results. Uses only Apple's local model, with no
-  cloud fallback. No automatic analysis or file renaming is enabled yet.
+  cloud fallback. The separate tester remains read-only.
 
 ## [1.4.0] - 2026-10-22
 

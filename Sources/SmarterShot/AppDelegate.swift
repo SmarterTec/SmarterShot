@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         let hasCapture = CGPreflightScreenCaptureAccess()
         CaptureController.log("LAUNCH ScreenCapture preflight=\(hasCapture)")
 
+        NotificationCenter.default.addObserver(self,selector:#selector(screenshotRenamed(_:)),name:OverlayWindow.fileRenamed,object:nil)
         setupStatusItem()
         appUpdater.start()
         // Useful for local release rehearsals and scripted, user-initiated checks.
@@ -201,6 +202,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     // MARK: - Capture / record
+
+    @objc private func screenshotRenamed(_ notification:Notification) {
+        guard let old = notification.userInfo?["oldURL"] as? URL,
+              let new = notification.userInfo?["newURL"] as? URL,let shot = lastShot,shot.url == old else { return }
+        lastShot = CaptureController.Shot(url:new,image:shot.image,isVideo:shot.isVideo)
+    }
 
     private func present(_ shot: CaptureController.Shot?) {
         guard let shot = shot else { return }
