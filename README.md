@@ -13,7 +13,7 @@ Built with Swift + AppKit. The whole app is a ~200 KB bundle using ~40 MB RAM.
 - **Corner overlay** — after each capture a thumbnail pops into the bottom-left
   with **Copy**, **Reveal**, **Pin**, and **Markup**. It stays until you dismiss it, and
   multiple captures **stack** upward. The overlay hides while you drag the image out.
-- **Markup** — native macOS toolbar and formatting strip above the image for
+- **Markup** — native macOS toolbar with a compact formatting popover for
   curves, sketches, lines, arrows, boxes, ovals, text, and highlights. Choose
   stroke and fill colors, widths, fonts, and text sizes. Text edits inline.
   Tools stay active after drawing; click an existing object to select it and
@@ -21,9 +21,11 @@ Built with Swift + AppKit. The whole app is a ~200 KB bundle using ~40 MB RAM.
 - **Editable paths** — clicking an outline reveals its points. Double-click an
   edge to insert a point; hold an edge, then drag to bend it into a curve.
   Dense sketch strokes make room around held points for smooth reshaping.
-  Closed shapes support optional fills. Arrowheads follow the final segment.
+  Closed shapes support optional fills. Shift-click points or Shift-drag a selection
+  box to move several points together. Pause at the end of a sketch while
+  keeping the pointer down to recognize a clean shape. Arrowheads follow the final segment.
 - **Crop adjustment** — drag the image behind the frame, zoom the image with
-  the top slider, or resize the crop with its eight frame handles. Apply
+  pinching or the crop slider, or resize the crop with its eight frame handles. Apply
   animates into the result; Cancel discards the draft. Export preserves source
   pixel resolution for the chosen region.
 - **Save protection** — closing an edited screenshot or quitting the app offers

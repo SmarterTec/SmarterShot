@@ -19,8 +19,8 @@ func fixture() -> (MarkupCanvas,NSWindow) {
     w.contentView = c
     return (c,w)
 }
-func ev(_ c:MarkupCanvas,_ type:NSEvent.EventType,_ p:NSPoint,clicks:Int=1) -> NSEvent {
-    NSEvent.mouseEvent(with:type,location:c.convert(p,to:nil),modifierFlags:[],timestamp:0,windowNumber:c.window!.windowNumber,context:nil,eventNumber:0,clickCount:clicks,pressure:1)!
+func ev(_ c:MarkupCanvas,_ type:NSEvent.EventType,_ p:NSPoint,clicks:Int=1,flags:NSEvent.ModifierFlags=[]) -> NSEvent {
+    NSEvent.mouseEvent(with:type,location:c.convert(p,to:nil),modifierFlags:flags,timestamp:0,windowNumber:c.window!.windowNumber,context:nil,eventNumber:0,clickCount:clicks,pressure:1)!
 }
 func gesture(_ c:MarkupCanvas,_ a:NSPoint,_ b:NSPoint,clicks:Int=1,hold:Bool=false) {
     c.mouseDown(with:ev(c,.leftMouseDown,a,clicks:clicks))
@@ -114,12 +114,71 @@ for tool in MarkupCanvas.Tool.allCases {
 func descendants(_ view:NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
 let views = descendants(editor.window!.contentView!)
 assert(!views.compactMap { $0 as? NSButton }.contains { ["Edit Points","Add Point"].contains($0.title) })
-let fillButton = views.compactMap { $0 as? NSButton }.first { $0.title == "Fill" }!
-let fillRect = fillButton.convert(fillButton.bounds,to:editor.window!.contentView!)
-let canvasRect = editor.canvas.enclosingScrollView!.convert(editor.canvas.enclosingScrollView!.bounds,to:editor.window!.contentView!)
-assert(fillRect.minY >= canvasRect.maxY,"Shape controls must be above the canvas")
+let formatButton = editor.window!.toolbar!.items.first { $0.itemIdentifier.rawValue == "format" }!.view as! NSButton
+assert(NSApp.sendAction(formatButton.action!,to:formatButton.target,from:formatButton))
+assert(editor.formatting.isShown,"Formatting must open from the main toolbar")
+assert(descendants(editor.formatting.contentViewController!.view).compactMap { $0 as? NSButton }.contains { $0.title == "Fill" })
+assert(!views.compactMap { $0 as? NSTextField }.contains { $0.stringValue.contains("Drag points") })
+assert(toolButtons.allSatisfy { $0.title.isEmpty },"Drawing tools must all be icon-only")
+editor.formatting.performClose(nil)
 editor.close()
-print("Native toolbar/layout passed: top controls, no point-editing buttons, all tool actions.")
+print("Native toolbar/layout passed: toolbar popover, icon-only tools, no hint text or point-editing buttons, all tool actions.")
+
+// Holding at the end of a freehand stroke recognizes a clean shape.
+for shape in [MarkupCanvas.Tool.rectangle,.ellipse,.line] {
+    let (c,w) = fixture(); _ = w
+    c.tool = .sketch
+    let samples:[NSPoint]
+    if shape == .rectangle {
+        samples = [NSPoint(x:50,y:50),NSPoint(x:180,y:51),NSPoint(x:300,y:50),NSPoint(x:300,y:150),NSPoint(x:300,y:250),NSPoint(x:180,y:249),NSPoint(x:50,y:250),NSPoint(x:51,y:150),NSPoint(x:50,y:52)]
+    } else if shape == .ellipse {
+        samples = (0...32).map { n in let a = CGFloat(n)*2*CGFloat.pi/32; return NSPoint(x:200+140*cos(a),y:150+90*sin(a)) }
+    } else { samples = (0...20).map { NSPoint(x:30+CGFloat($0)*16,y:100+CGFloat($0%2)) } }
+    c.mouseDown(with:ev(c,.leftMouseDown,samples[0]))
+    for p in samples.dropFirst() { c.mouseDragged(with:ev(c,.leftMouseDragged,p)) }
+    RunLoop.main.run(until:Date(timeIntervalSinceNow:0.65))
+    c.mouseUp(with:ev(c,.leftMouseUp,samples.last!))
+    c.tool = .select
+    let hit = shape == .ellipse ? NSPoint(x:340,y:150) : shape == .rectangle ? NSPoint(x:180,y:50) : NSPoint(x:190,y:100)
+    c.mouseDown(with:ev(c,.leftMouseDown,hit)); c.mouseUp(with:ev(c,.leftMouseUp,hit))
+    assert(c.tool == shape,"Draw-and-hold must recognize \(shape)")
+    c.undoEdit(); assert(!c.hasUnsavedChanges,"Recognized drawing must undo in one step")
+}
+let (multi,multiWindow) = fixture()
+multi.tool = .rectangle
+gesture(multi,NSPoint(x:50,y:50),NSPoint(x:300,y:250))
+multi.mouseDown(with:ev(multi,.leftMouseDown,NSPoint(x:180,y:50)))
+multi.mouseUp(with:ev(multi,.leftMouseUp,NSPoint(x:180,y:50)))
+for point in [NSPoint(x:50,y:50),NSPoint(x:300,y:50)] {
+    multi.mouseDown(with:ev(multi,.leftMouseDown,point,flags:.shift))
+    multi.mouseUp(with:ev(multi,.leftMouseUp,point,flags:.shift))
+}
+assert(multi.selectedPointIndices == [0,1])
+gesture(multi,NSPoint(x:50,y:50),NSPoint(x:70,y:80))
+assert(multi.selectedPoint(at:0) == NSPoint(x:70,y:80) && multi.selectedPoint(at:1) == NSPoint(x:320,y:80))
+assert(multi.selectedPoint(at:2) == NSPoint(x:300,y:250),"Unselected points must stay fixed")
+multi.undoEdit(); multi.redoEdit()
+// Shift-drag a selection box, then move the selected group together.
+multi.mouseDown(with:ev(multi,.leftMouseDown,NSPoint(x:180,y:80)))
+multi.mouseUp(with:ev(multi,.leftMouseUp,NSPoint(x:180,y:80)))
+multi.mouseDown(with:ev(multi,.leftMouseDown,NSPoint(x:10,y:10),flags:.shift))
+multi.mouseDragged(with:ev(multi,.leftMouseDragged,NSPoint(x:390,y:290),flags:.shift))
+multi.mouseUp(with:ev(multi,.leftMouseUp,NSPoint(x:390,y:290),flags:.shift))
+assert(multi.selectedPointIndices.count == 4)
+let fixed = multi.selectedPoint(at:2)!
+gesture(multi,multi.selectedPoint(at:0)!,NSPoint(x:80,y:90))
+assert(multi.selectedPoint(at:2)! == NSPoint(x:fixed.x+10,y:fixed.y+10))
+// A brief pause may snap a stroke, but continuing to draw must restore it.
+let (resume,resumeWindow) = fixture()
+resume.tool = .sketch
+resume.mouseDown(with:ev(resume,.leftMouseDown,NSPoint(x:20,y:100)))
+for x in stride(from:30,through:200,by:10) { resume.mouseDragged(with:ev(resume,.leftMouseDragged,NSPoint(x:x,y:100))) }
+RunLoop.main.run(until:Date(timeIntervalSinceNow:0.65))
+assert(resume.selectionPointCount == 2)
+resume.mouseDragged(with:ev(resume,.leftMouseDragged,NSPoint(x:220,y:170)))
+resume.mouseUp(with:ev(resume,.leftMouseUp,NSPoint(x:220,y:170)))
+assert(resume.selectionPointCount > 10 && resume.tool == .sketch)
+print("Draw-and-hold recognition and Shift multi-point movement passed.")
 
 // Crop is a reversible draft. Pan moves the source behind a fixed crop frame;
 // zoom changes the source region, and frame handles resize without applying it.
@@ -140,7 +199,8 @@ cropCanvas.mouseUp(with:ce(.leftMouseUp,NSPoint(x:center.x+20,y:center.y+10)))
 assert(cropCanvas.cropFrame == fixedFrame,"Panning the image must leave the crop frame fixed")
 assert(cropCanvas.hasUnsavedChanges)
 let beforeZoom = cropCanvas.outputSize
-cropCanvas.setCropScale(2)
+cropCanvas.magnifyCrop(by:1)
+assert(cropCanvas.cropScale == 2)
 assert(cropCanvas.outputSize.width < beforeZoom.width && cropCanvas.cropFrame == fixedFrame)
 let cropCorner = NSPoint(x:fixedFrame.maxX,y:fixedFrame.maxY)
 cropCanvas.mouseDown(with:ce(.leftMouseDown,cropCorner))
