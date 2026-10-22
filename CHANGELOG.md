@@ -6,6 +6,12 @@ All notable changes to SmarterShot. This project follows
 ## [Unreleased]
 
 ### Changed
+- Text-free animated loading skeletons replace AI progress labels in previews.
+  Show one inline-editable AI filename and description, without a separate saved
+  filename or acceptance button. Committing a filename edit renames the file.
+- Capture app identity from macOS at screenshot time, preserve it as file metadata,
+  and use it in saved and suggested filenames instead of relying on AI guesses.
+  Window captures use the existing window picker to retain the selected window ID.
 - Edge-to-edge preview images with compact, content-sized metadata: description
   headline above filename body text. Action tooltips work while the app is inactive.
 - Preview controls float over the image using native glass capsules; the saved

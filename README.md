@@ -98,10 +98,16 @@ Screenshot previews use native Liquid Glass on macOS 26 and later (a translucent
 fallback on older versions) and stack at the bottom left. Removing one slides those above it
 down. When the stack fills the screen, scroll over it to reach every preview;
 there is no visible scrollbar or six-preview limit. Compact native glass controls
-float over the thumbnail. Below it, review the saved filename and the on-device
-AI description. Filename suggestions retain the timestamp and app name when
-identified; edit a suggestion and click its checkmark to rename. Existing files
-are never overwritten, and renaming is blocked while that image is open in markup.
+float over the thumbnail. A loading skeleton animates while on-device analysis
+runs. Below the image, the description is an editable headline with one editable
+AI filename underneath. Click into either field to edit; Return or clicking away
+commits a filename edit. Existing files are never overwritten, and renaming is
+blocked while that image is open in markup. Escape cancels a filename edit.
+New screenshots record the source app from macOS, include it with the timestamp
+in the saved name, and use that recorded app in AI filename suggestions. Window
+capture uses the selected window's owner; area capture uses the window at the
+selected region's center. Older/imported screenshots without this metadata can
+still use the model's app identification.
 Descriptions and suggested names are editable in the preview. Captures save and
 appear immediately; automatic on-device analysis runs afterward, one image at a
 time. Dismissing a preview cancels its analysis. Videos are not analyzed.
@@ -119,7 +125,7 @@ suggestion and **Copy Suggestions** copies your reviewed text.
 
 The separate tester is manual and read-only: images are not renamed or modified
 by its analysis or Copy action. Capture previews also analyze images in the
-background and offer a separate explicit checkmark action to accept a filename. Generation uses only Apple's
+background; committing an inline filename edit renames that file. Generation uses only Apple's
 `SystemLanguageModel` on this Mac, with no cloud provider, API key, or fallback.
 Image analysis needs macOS 27 and Apple Intelligence enabled with its model ready.
 The tester explains unavailability instead of switching services. Descriptions

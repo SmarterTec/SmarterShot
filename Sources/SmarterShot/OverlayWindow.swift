@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 /// The capture overlay that pops into the bottom-left corner right after a
 /// capture. Shows a thumbnail you can drag out, plus quick actions.
@@ -9,9 +10,9 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
     private var shot: CaptureController.Shot
     private let thumbnail: DraggableImageView
     private let filenameLabel = NSTextField(wrappingLabelWithString: "")
-    private let suggestedName = NSTextField(string: "")
     private let descriptionLabel = NSTextField(wrappingLabelWithString: "")
-    private let acceptName = NSButton()
+    private let skeleton = PreviewLoadingSkeleton()
+    private var isLoading = false
     private let analyzer: @MainActor (URL) async throws -> ScreenshotAISuggestion
     private var analysisTask: Task<Void,Never>?
     private static var analysisTail: Task<Void,Never>?
@@ -144,25 +145,13 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
         filenameLabel.maximumNumberOfLines = 2
         filenameLabel.lineBreakMode = .byWordWrapping
         filenameLabel.isSelectable = true
-        filenameLabel.setAccessibilityLabel("Saved filename")
+        filenameLabel.setAccessibilityLabel("Filename, editable")
+        filenameLabel.placeholderString = "Filename"
+        filenameLabel.delegate = self
+        filenameLabel.isEditable = true
         filenameLabel.stringValue = shot.url.lastPathComponent
         filenameLabel.toolTip = shot.url.lastPathComponent
         effect.addSubview(filenameLabel)
-        suggestedName.frame = NSRect(x:pad,y:pad+65,width:thumbW-32,height:24)
-        suggestedName.font = .systemFont(ofSize:11)
-        suggestedName.placeholderString = "Suggested filename"
-        suggestedName.setAccessibilityLabel("Suggested filename, editable")
-        suggestedName.isHidden = true
-        effect.addSubview(suggestedName)
-        acceptName.frame = NSRect(x:panelWidth-pad-28,y:pad+65,width:28,height:24)
-        acceptName.image = NSImage(systemSymbolName:"checkmark",accessibilityDescription:"Use suggested filename")
-        acceptName.imagePosition = .imageOnly
-        acceptName.bezelStyle = .rounded
-        acceptName.target = self; acceptName.action = #selector(acceptSuggestedName)
-        acceptName.toolTip = "Rename this file using the reviewed name"
-        acceptName.setAccessibilityLabel("Use suggested filename")
-        acceptName.isHidden = true
-        effect.addSubview(acceptName)
         descriptionLabel.frame = NSRect(x:pad,y:pad,width:thumbW,height:57)
         descriptionLabel.font = .systemFont(ofSize:14,weight:.semibold)
         descriptionLabel.textColor = .labelColor
@@ -172,6 +161,7 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
         descriptionLabel.setAccessibilityLabel("Screenshot description")
         descriptionLabel.stringValue = shot.isVideo ? "Screen recording" : "Description pending"
         effect.addSubview(descriptionLabel)
+        effect.addSubview(skeleton)
 
         layoutMetadata()
         OverlayWindow.document.addSubview(card)
@@ -193,37 +183,50 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
             return ceil(max(lineHeight,min(lineHeight*CGFloat(lines)+2,measured)))
         }
         var y = pad
-        if !suggestedName.isHidden {
-            suggestedName.frame = NSRect(x:pad,y:y,width:textWidth-32,height:24)
-            acceptName.frame = NSRect(x:width-pad-28,y:y,width:28,height:24)
-            y += 30
-        }
+        if isLoading {
+            skeleton.frame = NSRect(x:pad,y:pad,width:textWidth,height:58)
+            y += 58 + pad
+        } else {
         let bodyHeight = height(filenameLabel,lines:2)
         filenameLabel.frame = NSRect(x:pad,y:y,width:textWidth,height:bodyHeight)
         y += bodyHeight + 6
         let headlineHeight = height(descriptionLabel,lines:3)
         descriptionLabel.frame = NSRect(x:pad,y:y,width:textWidth,height:headlineHeight)
         y += headlineHeight + pad
+        }
         let imageHeight = thumbnail.frame.height
         card.setFrameSize(NSSize(width:width,height:y+imageHeight))
         thumbnail.frame = NSRect(x:0,y:y,width:width,height:imageHeight)
         if Self.stack.contains(where: { $0 === self }) { Self.restack(animated:true) }
     }
     func controlTextDidEndEditing(_ notification:Notification) {
-        if notification.object as? NSTextField === descriptionLabel { layoutMetadata() }
+        if (notification.userInfo?[NSText.movementUserInfoKey] as? Int) == NSTextMovement.cancel.rawValue { return }
+        if notification.object as? NSTextField === filenameLabel {
+            do { try useSuggestedFilename() }
+            catch {
+                let alert = NSAlert(error:error)
+                NSApp.activate(ignoringOtherApps:true)
+                alert.beginSheetModal(for:Self.host)
+            }
+        }
+        layoutMetadata()
+    }
+
+    private func setLoading(_ value:Bool) {
+        isLoading = value
+        filenameLabel.isHidden = value; descriptionLabel.isHidden = value
+        skeleton.setLoading(value)
+        layoutMetadata()
     }
 
     private func startAnalysis() {
         // Serialize automatic work so a burst of screenshots doesn't run many
         // local models at once. Waiting never blocks capture, saving or dragging.
-        descriptionLabel.stringValue = "Waiting for on-device description…"
-        layoutMetadata()
+        setLoading(true)
         let previous = Self.analysisTail
         let task = Task { @MainActor [weak self] in
             await previous?.value
             guard !Task.isCancelled,let self = self,!self.isDismissing else { return }
-            self.descriptionLabel.stringValue = "Describing on this Mac…"
-            self.layoutMetadata()
             do {
                 let result = try await self.analyzer(self.shot.url)
                 guard !Task.isCancelled,!self.isDismissing else { return }
@@ -232,34 +235,25 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
                 guard !Task.isCancelled,!self.isDismissing else { return }
                 self.descriptionLabel.stringValue = error.localizedDescription
                 self.descriptionLabel.toolTip = error.localizedDescription
-                self.layoutMetadata()
+                self.setLoading(false)
             }
         }
         analysisTask = task; Self.analysisTail = task
     }
 
     func showSuggestion(_ result: ScreenshotAISuggestion) {
-        suggestedName.stringValue = result.suggestedFilename(for:shot.url)
-        suggestedName.isHidden = false; acceptName.isHidden = false
+        filenameLabel.stringValue = result.suggestedFilename(for:shot.url,sourceAppName:shot.sourceAppName)
+        filenameLabel.toolTip = filenameLabel.stringValue
         descriptionLabel.stringValue = result.description
         descriptionLabel.toolTip = result.description
         descriptionLabel.isEditable = true
-        layoutMetadata()
+        setLoading(false)
     }
 
-    @objc private func acceptSuggestedName() {
-        do { try useSuggestedFilename() }
-        catch {
-            let alert = NSAlert(error:error)
-            NSApp.activate(ignoringOtherApps:true)
-            alert.beginSheetModal(for:Self.host)
-        }
-    }
-
-    /// Only the explicit checkmark action may move a saved file. Never overwrite
+    /// Committing a filename edit may move a saved file. Never overwrite
     /// another screenshot, change its image extension, or invalidate an open editor.
     func useSuggestedFilename() throws {
-        let name = suggestedName.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
+        let name = filenameLabel.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
         guard !name.isEmpty,!name.contains("/"),!name.contains(":"),!name.contains("\n"),
               name.utf8.count <= 240,(name as NSString).pathExtension.lowercased() == shot.url.pathExtension.lowercased(),
               !MarkupWindow.isEditing(url:shot.url) else {
@@ -269,10 +263,9 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
         let destination = original.deletingLastPathComponent().appendingPathComponent(name)
         if destination != original { try FileManager.default.moveItem(at:original,to:destination) }
         for overlay in Self.stack where overlay.shot.url == original {
-            overlay.shot = CaptureController.Shot(url:destination,image:overlay.shot.image,isVideo:overlay.shot.isVideo)
+            overlay.shot = CaptureController.Shot(url:destination,image:overlay.shot.image,isVideo:overlay.shot.isVideo,sourceAppName:overlay.shot.sourceAppName)
             overlay.thumbnail.fileURL = destination
             overlay.filenameLabel.stringValue = name; overlay.filenameLabel.toolTip = name
-            overlay.suggestedName.isHidden = true; overlay.acceptName.isHidden = true
             overlay.layoutMetadata()
         }
         NotificationCenter.default.post(name:Self.fileRenamed,object:nil,userInfo:["oldURL":original,"newURL":destination])
@@ -364,6 +357,7 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
         guard !isDismissing else { return }
         isDismissing = true
         analysisTask?.cancel()
+        skeleton.setLoading(false)
         autoDismissTimer?.invalidate()
         PasteWatcher.shared.forget(self)
         NSAnimationContext.runAnimationGroup({ ctx in
@@ -456,4 +450,54 @@ private final class OverlayStackPanel: NSPanel {
     }
     override var canBecomeKey: Bool { true }
     @objc private func screenChanged() { OverlayWindow.relayoutForScreenChange() }
+}
+
+/// A text-free placeholder for both metadata fields, rendered with native Core
+/// Animation layers and kept static when Reduce Motion is enabled.
+final class PreviewLoadingSkeleton: NSView {
+    private let gradient = CAGradientLayer()
+    private let bars = CAShapeLayer()
+    private(set) var isLoading = false
+    override init(frame:NSRect) {
+        super.init(frame:frame)
+        wantsLayer = true
+        gradient.startPoint = CGPoint(x:0,y:0.5); gradient.endPoint = CGPoint(x:1,y:0.5)
+        gradient.mask = bars
+        layer?.addSublayer(gradient)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.progressIndicator)
+        setAccessibilityLabel("Generating screenshot details")
+        isHidden = true
+    }
+    required init?(coder:NSCoder) { fatalError("init(coder:) not used") }
+    func setLoading(_ value:Bool) {
+        isLoading = value; isHidden = !value
+        gradient.removeAllAnimations()
+        guard value else { return }
+        updateColors()
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            let shimmer = CABasicAnimation(keyPath:"locations")
+            shimmer.fromValue = [-1.0,-0.5,0.0]; shimmer.toValue = [1.0,1.5,2.0]
+            shimmer.duration = 1.4; shimmer.repeatCount = .infinity
+            gradient.add(shimmer,forKey:"shimmer")
+        }
+        needsLayout = true
+    }
+    private func updateColors() {
+        let base = NSColor.secondaryLabelColor.withAlphaComponent(0.12).cgColor
+        let light = NSColor.secondaryLabelColor.withAlphaComponent(0.24).cgColor
+        gradient.colors = [base,light,base]; gradient.locations = [0,0.5,1]
+    }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateColors() }
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        gradient.frame = bounds; bars.frame = bounds
+        let path = CGMutablePath()
+        for (y,width,height) in [(CGFloat(42),bounds.width*0.94,CGFloat(13)),(CGFloat(24),bounds.width*0.68,CGFloat(13)),(CGFloat(2),bounds.width*0.86,CGFloat(10))] {
+            path.addRoundedRect(in:CGRect(x:0,y:y,width:width,height:height),cornerWidth:4,cornerHeight:4)
+        }
+        bars.path = path
+        CATransaction.commit()
+    }
 }

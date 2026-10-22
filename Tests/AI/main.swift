@@ -51,6 +51,27 @@ import AppKit
         == "2026-10-21 at 08.57.48 - rear-bumper.png")
     assert(ScreenshotAISuggestion(filename:"blender-rear-bumper",description:"",appName:"Blender").suggestedFilename(for:capture)
         == "2026-10-21 at 08.57.48 - Blender - rear-bumper.png")
+    assert(named.suggestedFilename(for:capture,sourceAppName:"Safari")
+        == "2026-10-21 at 08.57.48 - Safari - rear-bumper.png", "Captured app must override the model")
+    assert(named.suggestedFilename(for:capture,sourceAppName:"")
+        == "2026-10-21 at 08.57.48 - rear-bumper.png", "Unknown captured app must not become an AI guess")
+    let contextURL = folder.appendingPathComponent("context.png")
+    try? FileManager.default.removeItem(at:contextURL)
+    try bytes.write(to:contextURL)
+    assert(CaptureSourceContext.read(from:contextURL) == nil)
+    CaptureSourceContext.write("Blender",to:contextURL)
+    assert(CaptureSourceContext.read(from:contextURL) == "Blender")
+    CaptureSourceContext.write("",to:contextURL)
+    assert(CaptureSourceContext.read(from:contextURL) == "")
+    let windows:[[String:Any]] = [
+        [kCGWindowLayer as String:0,kCGWindowOwnerPID as String:Int32(-1),kCGWindowOwnerName as String:"Safari",
+         kCGWindowBounds as String:CGRect(x:0,y:0,width:100,height:100).dictionaryRepresentation],
+        [kCGWindowLayer as String:0,kCGWindowOwnerPID as String:Int32(-2),kCGWindowOwnerName as String:"Blender",
+         kCGWindowBounds as String:CGRect(x:100,y:0,width:100,height:100).dictionaryRepresentation]
+    ]
+    assert(CaptureSourceContext.applicationAtCenter(of:CGRect(x:120,y:20,width:40,height:40),in:windows,ownPID:42) == "Blender")
+    assert(CaptureSourceContext.applicationAtCenter(of:CGRect(x:20,y:20,width:40,height:40),in:windows,ownPID:42) == "Safari")
+    assert(CaptureSourceContext.applicationAtCenter(of:CGRect(x:20,y:20,width:40,height:40),in:windows,ownPID:-1) == nil)
     let fileDate = try second.resourceValues(forKeys:[.creationDateKey]).creationDate!
     let formatter = DateFormatter(); formatter.locale = Locale(identifier:"en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
     assert(expectedSecond == formatter.string(from:fileDate) + " - second-image.png")

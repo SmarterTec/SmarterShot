@@ -19,7 +19,7 @@ struct ScreenshotAISuggestion: Equatable, Sendable {
     }
 
     /// Keep capture time outside the model's output so retries cannot invent or change it.
-    func suggestedFilename(for source: URL) -> String {
+    func suggestedFilename(for source: URL, sourceAppName: String? = nil) -> String {
         let original = source.deletingPathExtension().lastPathComponent
         let pattern = #"\d{4}-\d{2}-\d{2} at \d{2}\.\d{2}\.\d{2}"#
         let timestamp: String
@@ -36,10 +36,13 @@ struct ScreenshotAISuggestion: Equatable, Sendable {
                 timestamp = formatter.string(from: date)
             } else { timestamp = "" }
         }
-        let appSlug = ScreenshotAISuggestion(filename: appName, description: "").filenameStem
-        let subject = !appName.isEmpty && filenameStem.hasPrefix(appSlug + "-")
-            ? String(filenameStem.dropFirst(appSlug.count + 1)) : filenameStem
-        let stem = [timestamp, appName, subject].filter { !$0.isEmpty }.joined(separator: " - ")
+        let application = sourceAppName.map { ScreenshotAISuggestion(filename:"",description:"",appName:$0).appName } ?? appName
+        var subject = filenameStem
+        for name in [appName,application] where !name.isEmpty {
+            let slug = ScreenshotAISuggestion(filename:name,description:"").filenameStem
+            if subject.hasPrefix(slug+"-") { subject = String(subject.dropFirst(slug.count+1)) }
+        }
+        let stem = [timestamp, application, subject].filter { !$0.isEmpty }.joined(separator: " - ")
         return stem + (source.pathExtension.isEmpty ? "" : "." + source.pathExtension.lowercased())
     }
 }

@@ -6,6 +6,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
     private static var editors: [MarkupWindow] = []
     let canvas: MarkupCanvas
     private let source: URL
+    private let sourceAppName: String?
     private let onSave: (CaptureController.Shot) -> Void
     private var allowClose = false
     private var showingSaveSheet = false
@@ -25,6 +26,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
 
     init(shot: CaptureController.Shot, onSave: @escaping (CaptureController.Shot) -> Void) {
         source = shot.url
+        sourceAppName = shot.sourceAppName
         self.onSave = onSave
         canvas = MarkupCanvas(image: shot.image)
         let window = NSWindow(contentRect: NSRect(x:0,y:0,width:1240,height:800),
@@ -336,6 +338,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
         guard let data = bitmap.representation(using:type,properties:type == .jpeg ? [.compressionFactor:0.95] : [:]) else { return false }
         do {
             try data.write(to:destination,options:.atomic)
+            CaptureSourceContext.write(sourceAppName,to:destination)
             canvas.markSaved()
             onSave(CaptureController.Shot(url:destination,image:image))
             allowClose = true; close()

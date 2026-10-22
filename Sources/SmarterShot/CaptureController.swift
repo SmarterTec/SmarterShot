@@ -18,7 +18,12 @@ enum CaptureController {
     struct Shot {
         let url: URL
         let image: NSImage
-        var isVideo = false
+        var isVideo: Bool
+        let sourceAppName: String?
+        init(url:URL,image:NSImage,isVideo:Bool=false,sourceAppName:String?=nil) {
+            self.url = url; self.image = image; self.isVideo = isVideo
+            self.sourceAppName = sourceAppName ?? CaptureSourceContext.read(from:url)
+        }
     }
 
     private static func timestampName(ext: String) -> String {
@@ -36,7 +41,14 @@ enum CaptureController {
 
     /// Interactive window capture — click a window to grab it.
     static func captureWindow(completion: @escaping (Shot?) -> Void) {
-        run(arguments: ["-w"], ext: "png", isVideo: false, completion: completion)
+        // The selected window ID provides an authoritative owning application.
+        // Reuse the existing window selector rather than guessing the frontmost
+        // app after Apple's interactive capture tool has finished.
+        SelectionOverlay.present(mode:.window) { target in
+            guard case .window(let id,_) = target else { completion(nil); return }
+            let name = CaptureSourceContext.applicationName(windowID:id) ?? ""
+            run(arguments:["-l",String(id)],ext:"png",isVideo:false,sourceAppName:name,completion:completion)
+        }
     }
 
     // Screen recording lives in ScreenRecorder (long-running + stoppable).
@@ -61,7 +73,7 @@ enum CaptureController {
         return candidate
     }
 
-    private static func run(arguments: [String], ext: String, isVideo: Bool,
+    private static func run(arguments: [String], ext: String, isVideo: Bool, sourceAppName:String? = nil,
                             completion: @escaping (Shot?) -> Void) {
         let dest = uniqueDestination(ext: ext)
 
@@ -85,10 +97,31 @@ enum CaptureController {
                     completion(nil) // user cancelled — nothing written
                     return
                 }
-                let image = isVideo ? (posterFrame(dest) ?? videoPlaceholder())
-                                    : (NSImage(contentsOf: dest) ?? NSImage())
+                var capturedApp = sourceAppName
+                if !isVideo && capturedApp == nil {
+                    if let region = CaptureSourceContext.capturedRegion(from:dest) {
+                        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly,.excludeDesktopElements],kCGNullWindowID) as? [[String:Any]] ?? []
+                        capturedApp = CaptureSourceContext.applicationAtCenter(of:region,in:windows,ownPID:ProcessInfo.processInfo.processIdentifier)
+                    }
+                    capturedApp = capturedApp ?? "" // A new capture must not fall back to an AI app guess.
+                }
+                var savedURL = dest
+                let appComponent = CaptureSourceContext.safeComponent(capturedApp ?? "")
+                if !appComponent.isEmpty {
+                    let stem = dest.deletingPathExtension().lastPathComponent + " - " + appComponent
+                    var candidate = dest.deletingLastPathComponent().appendingPathComponent(stem+"."+ext)
+                    var suffix = 2
+                    while FileManager.default.fileExists(atPath:candidate.path) {
+                        candidate = dest.deletingLastPathComponent().appendingPathComponent(stem+" (\(suffix))."+ext); suffix += 1
+                    }
+                    do { try FileManager.default.moveItem(at:dest,to:candidate); savedURL = candidate }
+                    catch { /* Keep the successful capture under its original name. */ }
+                }
+                CaptureSourceContext.write(capturedApp,to:savedURL)
+                let image = isVideo ? (posterFrame(savedURL) ?? videoPlaceholder())
+                                    : (NSImage(contentsOf:savedURL) ?? NSImage())
                 if !isVideo { SoundPlayer.play(ShortcutStore.soundName) }
-                completion(Shot(url: dest, image: image, isVideo: isVideo))
+                completion(Shot(url:savedURL,image:image,isVideo:isVideo,sourceAppName:capturedApp))
             }
         }
 

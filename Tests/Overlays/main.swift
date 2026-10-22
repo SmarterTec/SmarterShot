@@ -1,7 +1,7 @@
 import AppKit
 
 enum CaptureController {
-    struct Shot { let url:URL; let image:NSImage; var isVideo = false }
+    struct Shot { let url:URL; let image:NSImage; var isVideo = false; var sourceAppName:String? = nil }
     static func copyToClipboard(_ shot:Shot) {}
     static func delete(_ shot:Shot) {}
 }
@@ -93,16 +93,18 @@ review.showSuggestion(ScreenshotAISuggestion(filename:"rear-bumper",description:
 settle()
 assert(FileManager.default.fileExists(atPath:original.path) && !FileManager.default.fileExists(atPath:expected.path))
 let cardViews = children(document.subviews.last!)
-let nameField = cardViews.compactMap { $0 as? NSTextField }.first { $0.placeholderString == "Suggested filename" }!
+let nameField = cardViews.compactMap { $0 as? NSTextField }.first { $0.placeholderString == "Filename" }!
 let previewImage = cardViews.compactMap { $0 as? DraggableImageView }.first!
 assert(previewImage.layer!.cornerRadius == 20 && previewImage.frame.minX == 0 && previewImage.frame.width == document.frame.width,
        "Edge-to-edge image shares the outer top corners")
 assert(previewImage.fillsBounds && panel.allowsToolTipsWhenApplicationIsInactive)
 assert(abs(previewImage.frame.maxY-document.subviews.last!.bounds.maxY)<1,"AI completion must not move image beyond card edge")
 let header = cardViews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "A rear bumper model." }!
-let body = cardViews.compactMap { $0 as? NSTextField }.first { $0.stringValue == original.lastPathComponent }!
+let body = nameField
 assert(header.frame.minY > body.frame.maxY && header.font!.pointSize > body.font!.pointSize)
-assert(body.frame.minY-nameField.frame.maxY <= 8,"Metadata spacing must be compact")
+assert(body.frame.minY == 12,"Metadata spacing must be compact")
+assert(cardViews.compactMap { $0 as? NSTextField }.count == 2,"Only one filename and one description should be shown")
+assert(!cardViews.compactMap { $0 as? NSButton }.contains { $0.accessibilityLabel() == "Use suggested filename" })
 let actions = cardViews.compactMap { $0 as? NSButton }.filter { ["Copy image to clipboard","Show screenshot in Finder","Keep image floating above other windows","Edit and annotate screenshot"].contains($0.toolTip ?? "") }
 assert(actions.count == 4 && actions.allSatisfy { $0.title.isEmpty && $0.frame.minY > previewImage.frame.minY })
 MarkupWindow.editing = true
@@ -116,7 +118,7 @@ try FileManager.default.removeItem(at:expected)
 nameField.stringValue = "../outside.png"
 do { try review.useSuggestedFilename(); assertionFailure("Must reject path traversal") } catch {}
 nameField.stringValue = expected.lastPathComponent
-try review.useSuggestedFilename()
+review.controlTextDidEndEditing(Notification(name:NSControl.textDidEndEditingNotification,object:nameField))
 assert(!FileManager.default.fileExists(atPath:original.path) && previewImage.fileURL == expected)
 let renamedBytes = try Data(contentsOf:expected)
 assert(renamedBytes == Data([1,2,3]))
@@ -132,6 +134,9 @@ let queuedSecond = OverlayWindow(shot:.init(url:expected,image:NSImage(size:NSSi
 assert(OverlayWindow.stack.count == 2 && panel.isVisible,"Previews must appear before AI finishes")
 settle()
 assert(analysisReplies.count == 1,"Automatic model work should be serialized")
+let loadingViews = children(document)
+assert(loadingViews.compactMap { $0 as? PreviewLoadingSkeleton }.filter { $0.isLoading && !$0.isHidden }.count == 2)
+assert(!loadingViews.compactMap { $0 as? NSTextField }.contains { !$0.isHidden && ($0.stringValue.contains("Describing") || $0.stringValue.contains("Waiting")) })
 queuedFirst.dismiss()
 analysisReplies[0].resume(returning:ScreenshotAISuggestion(filename:"stale",description:"Canceled result"))
 settle()
@@ -139,7 +144,8 @@ assert(analysisReplies.count == 2)
 analysisReplies[1].resume(returning:ScreenshotAISuggestion(filename:"reviewed",description:"Ready description"))
 settle()
 assert(!children(document).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Canceled result" })
-assert(children(document).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Ready description" })
+assert(children(document).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Ready description" && $0.isEditable })
+assert(children(document).compactMap { $0 as? PreviewLoadingSkeleton }.allSatisfy { !$0.isLoading && $0.isHidden })
 let readyImage = children(document).compactMap { $0 as? DraggableImageView }.first!
 assert(abs(readyImage.frame.maxY-document.subviews.last!.bounds.maxY)<1,"Background result must preserve image alignment")
 queuedSecond.dismiss(); settle()

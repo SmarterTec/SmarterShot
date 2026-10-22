@@ -2,7 +2,7 @@ import AppKit
 
 // Standalone AppKit harness, without starting capture services or global hotkeys.
 enum CaptureController {
-    struct Shot { let url: URL; let image: NSImage }
+    struct Shot { let url: URL; let image: NSImage; var sourceAppName:String? = nil }
     static func copyToClipboard(_ shot: Shot) {}
 }
 let app = NSApplication.shared
