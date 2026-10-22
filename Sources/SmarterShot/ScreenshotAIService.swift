@@ -4,14 +4,42 @@ import FoundationModels
 struct ScreenshotAISuggestion: Equatable, Sendable {
     let filenameStem: String
     let description: String
+    let appName: String
 
-    init(filename: String, description: String) {
+    init(filename: String, description: String, appName: String = "") {
         let ext = (filename as NSString).pathExtension.lowercased()
         let raw = ["png","jpg","jpeg","heic","tif","tiff","gif","bmp"].contains(ext) ? (filename as NSString).deletingPathExtension : filename
         let words = raw.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }
         let stem = words.prefix(10).joined(separator: "-")
         filenameStem = stem.isEmpty ? "screenshot" : String(stem.prefix(90)).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        self.appName = appName.components(separatedBy: CharacterSet.alphanumerics.union(.whitespaces).inverted)
+            .joined(separator: " ").split(whereSeparator: \.isWhitespace).prefix(6).joined(separator: " ")
         self.description = description.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    }
+
+    /// Keep capture time outside the model's output so retries cannot invent or change it.
+    func suggestedFilename(for source: URL) -> String {
+        let original = source.deletingPathExtension().lastPathComponent
+        let pattern = #"\d{4}-\d{2}-\d{2} at \d{2}\.\d{2}\.\d{2}"#
+        let timestamp: String
+        if let range = original.range(of: pattern, options: .regularExpression) {
+            timestamp = String(original[range])
+        } else {
+            // For imported images without a capture timestamp, use the file's date,
+            // never today's analysis time. Omit it only if no file date is available.
+            let values = try? source.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+            if let date = values?.creationDate ?? values?.contentModificationDate {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+                timestamp = formatter.string(from: date)
+            } else { timestamp = "" }
+        }
+        let appSlug = ScreenshotAISuggestion(filename: appName, description: "").filenameStem
+        let subject = !appName.isEmpty && filenameStem.hasPrefix(appSlug + "-")
+            ? String(filenameStem.dropFirst(appSlug.count + 1)) : filenameStem
+        let stem = [timestamp, appName, subject].filter { !$0.isEmpty }.joined(separator: " - ")
+        return stem + (source.pathExtension.isEmpty ? "" : "." + source.pathExtension.lowercased())
     }
 }
 
@@ -60,7 +88,8 @@ enum ScreenshotAIService {
             Suggest a short filename and one concise factual sentence. Do not suggest actions or edits.
             """)
         let schema = try GenerationSchema(root: DynamicGenerationSchema(name: "ScreenshotSuggestion", properties: [
-            .init(name: "filename", description: "Three to seven lowercase hyphenated words describing the visible app, subject or task. No extension or personal information.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "filename", description: "Three to seven lowercase hyphenated words describing the subject or task. Exclude app name, timestamp, extension and personal information.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "appName", description: "The main application name only when clearly identifiable from visible interface or branding, such as Blender or Safari. Otherwise return an empty string. Do not guess or use a document title, account name or website as the application name.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "description", description: "One concise factual sentence about the main visible content, about 12 to 25 words. Avoid repetition and uncertain object identities.", schema: DynamicGenerationSchema(type: String.self))
         ]), dependencies: [])
         let response = try await session.respond(schema: schema,
@@ -70,6 +99,7 @@ enum ScreenshotAIService {
             }
         try Task.checkCancellation()
         return ScreenshotAISuggestion(filename: try response.content.value(String.self, forProperty: "filename"),
-                                      description: try response.content.value(String.self, forProperty: "description"))
+                                      description: try response.content.value(String.self, forProperty: "description"),
+                                      appName: try response.content.value(String.self, forProperty: "appName"))
     }
 }

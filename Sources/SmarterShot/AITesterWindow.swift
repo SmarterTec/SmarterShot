@@ -186,7 +186,7 @@ final class AITesterWindow: NSWindowController, NSWindowDelegate, NSToolbarDeleg
             do {
                 let result = try await analyzeImage(url)
                 guard !Task.isCancelled,let self = self,self.generation == token else { return }
-                self.filename.stringValue = result.filenameStem + (url.pathExtension.isEmpty ? "" : "." + url.pathExtension.lowercased())
+                self.filename.stringValue = result.suggestedFilename(for: url)
                 self.descriptionView.string = result.description
                 self.status.stringValue = "Ready for review. Your screenshot is unchanged."
                 self.completeAnalysis()

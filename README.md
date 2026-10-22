@@ -96,7 +96,10 @@ configuration fails without replacing the last signed bundle.
 ## On-device AI tester
 
 Choose **Test On-Device AI…** from SmarterShot's menu-bar menu, select a screenshot,
-and click **Analyze**. Apple's on-device model suggests a filename and a short
+and click **Analyze**. Suggested filenames preserve the capture timestamp, followed
+by the app name when identifiable and a short subject (for example,
+`2026-10-21 at 08.57.48 - Blender - rear-bumper.png`). For imported images without
+a timestamp in the name, the file's creation date is used. Apple's on-device model suggests a filename and a short
 preview description. Both results are editable; **Try Again** generates another
 suggestion and **Copy Suggestions** copies your reviewed text.
 

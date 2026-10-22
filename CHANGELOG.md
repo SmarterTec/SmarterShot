@@ -5,6 +5,10 @@ All notable changes to SmarterShot. This project follows
 
 ## [Unreleased]
 
+### Changed
+- AI filename suggestions retain the capture timestamp and include the application
+  name when identifiable. Imported images fall back to their file date.
+
 ### Added
 - On-device AI tester: choose a screenshot, review editable filename and description
   suggestions, retry, or copy the results. Uses only Apple's local model, with no
