@@ -84,7 +84,8 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
         thumb.layer?.maskedCorners = [.layerMinXMaxYCorner,.layerMaxXMaxYCorner]
         thumb.layer?.cornerCurve = .continuous
         thumb.layer?.masksToBounds = true
-        thumb.autoresizingMask = [.minYMargin]
+        // Positioned explicitly after metadata sizing; do not also autoresize it.
+        thumb.autoresizingMask = []
         // Hide the overlay while dragging so only the image moves with the cursor.
         thumb.onDragWillBegin = { [weak self] in self?.card.isHidden = true }
         thumb.onDragEnded = { [weak self] operation in

@@ -90,6 +90,7 @@ try? FileManager.default.removeItem(at:expected)
 try Data([1,2,3]).write(to:original)
 let review = OverlayWindow(shot:.init(url:original,image:NSImage(size:NSSize(width:400,height:300))),analyzeAutomatically:false)
 review.showSuggestion(ScreenshotAISuggestion(filename:"rear-bumper",description:"A rear bumper model.",appName:"Blender"))
+settle()
 assert(FileManager.default.fileExists(atPath:original.path) && !FileManager.default.fileExists(atPath:expected.path))
 let cardViews = children(document.subviews.last!)
 let nameField = cardViews.compactMap { $0 as? NSTextField }.first { $0.placeholderString == "Suggested filename" }!
@@ -97,6 +98,7 @@ let previewImage = cardViews.compactMap { $0 as? DraggableImageView }.first!
 assert(previewImage.layer!.cornerRadius == 20 && previewImage.frame.minX == 0 && previewImage.frame.width == document.frame.width,
        "Edge-to-edge image shares the outer top corners")
 assert(previewImage.fillsBounds && panel.allowsToolTipsWhenApplicationIsInactive)
+assert(abs(previewImage.frame.maxY-document.subviews.last!.bounds.maxY)<1,"AI completion must not move image beyond card edge")
 let header = cardViews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "A rear bumper model." }!
 let body = cardViews.compactMap { $0 as? NSTextField }.first { $0.stringValue == original.lastPathComponent }!
 assert(header.frame.minY > body.frame.maxY && header.font!.pointSize > body.font!.pointSize)
@@ -138,5 +140,7 @@ analysisReplies[1].resume(returning:ScreenshotAISuggestion(filename:"reviewed",d
 settle()
 assert(!children(document).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Canceled result" })
 assert(children(document).compactMap { $0 as? NSTextField }.contains { $0.stringValue == "Ready description" })
+let readyImage = children(document).compactMap { $0 as? DraggableImageView }.first!
+assert(abs(readyImage.frame.maxY-document.subviews.last!.bounds.maxY)<1,"Background result must preserve image alignment")
 queuedSecond.dismiss(); settle()
 print("Background analysis checks passed: immediate preview, serialized work, cancellation and no stale results.")
