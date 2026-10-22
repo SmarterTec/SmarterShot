@@ -6,6 +6,8 @@ All notable changes to SmarterShot. This project follows
 ## [Unreleased]
 
 ### Changed
+- Edge-to-edge preview images with compact, content-sized metadata: description
+  headline above filename body text. Action tooltips work while the app is inactive.
 - Preview controls float over the image using native glass capsules; the saved
   filename, editable AI name suggestion and description appear below it.
 - On-device preview descriptions run after capture in a background queue. Accept

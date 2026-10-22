@@ -4,6 +4,21 @@ import AppKit
 /// (Finder, Slack, Mail, etc.). It vends the underlying file URL.
 final class DraggableImageView: NSImageView, NSDraggingSource {
     var fileURL: URL?
+    var fillsBounds = false
+
+    override func draw(_ dirtyRect:NSRect) {
+        guard fillsBounds,let image = image,image.size.width > 0,image.size.height > 0 else {
+            super.draw(dirtyRect); return
+        }
+        // Aspect-fill is a thumbnail presentation only; keep the saved image intact.
+        let scale = max(bounds.width/image.size.width,bounds.height/image.size.height)
+        let size = NSSize(width:image.size.width*scale,height:image.size.height*scale)
+        let target = NSRect(x:bounds.midX-size.width/2,y:bounds.midY-size.height/2,width:size.width,height:size.height)
+        NSGraphicsContext.saveGraphicsState()
+        bounds.clip()
+        image.draw(in:target,from:.zero,operation:.sourceOver,fraction:1,respectFlipped:true,hints:nil)
+        NSGraphicsContext.restoreGraphicsState()
+    }
     /// Called when a drag starts, so the overlay can hide itself.
     var onDragWillBegin: (() -> Void)?
     /// Called when the drag ends; empty operation means it was cancelled.

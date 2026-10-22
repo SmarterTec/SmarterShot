@@ -94,8 +94,14 @@ assert(FileManager.default.fileExists(atPath:original.path) && !FileManager.defa
 let cardViews = children(document.subviews.last!)
 let nameField = cardViews.compactMap { $0 as? NSTextField }.first { $0.placeholderString == "Suggested filename" }!
 let previewImage = cardViews.compactMap { $0 as? DraggableImageView }.first!
-assert(previewImage.layer!.cornerRadius == 8,"Thumbnail radius must equal parent radius minus padding")
-let actions = cardViews.compactMap { $0 as? NSButton }.filter { ["Copy","Reveal","Pin","Markup"].contains($0.toolTip ?? "") }
+assert(previewImage.layer!.cornerRadius == 20 && previewImage.frame.minX == 0 && previewImage.frame.width == document.frame.width,
+       "Edge-to-edge image shares the outer top corners")
+assert(previewImage.fillsBounds && panel.allowsToolTipsWhenApplicationIsInactive)
+let header = cardViews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "A rear bumper model." }!
+let body = cardViews.compactMap { $0 as? NSTextField }.first { $0.stringValue == original.lastPathComponent }!
+assert(header.frame.minY > body.frame.maxY && header.font!.pointSize > body.font!.pointSize)
+assert(body.frame.minY-nameField.frame.maxY <= 8,"Metadata spacing must be compact")
+let actions = cardViews.compactMap { $0 as? NSButton }.filter { ["Copy image to clipboard","Show screenshot in Finder","Keep image floating above other windows","Edit and annotate screenshot"].contains($0.toolTip ?? "") }
 assert(actions.count == 4 && actions.allSatisfy { $0.title.isEmpty && $0.frame.minY > previewImage.frame.minY })
 MarkupWindow.editing = true
 do { try review.useSuggestedFilename(); assertionFailure("Must not rename files in an open editor") } catch {}

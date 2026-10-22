@@ -3,7 +3,7 @@ import AppKit
 /// The capture overlay that pops into the bottom-left corner right after a
 /// capture. Shows a thumbnail you can drag out, plus quick actions.
 /// Stays until dismissed; multiple overlays stack upward from the corner.
-final class OverlayWindow: NSObject {
+final class OverlayWindow: NSObject, NSTextFieldDelegate {
     private let card: NSView
     private var isDismissing = false
     private var shot: CaptureController.Shot
@@ -37,17 +37,17 @@ final class OverlayWindow: NSObject {
 
         let panelWidth: CGFloat = 288
         let pad = Self.padding
-        let thumbW = panelWidth - pad * 2
+        let thumbW = panelWidth
         let img = shot.image
         let aspect = img.size.width > 0 ? img.size.height / img.size.width : 0.66
         let thumbH = min(180, max(96, thumbW * aspect))
-        let metadataHeight: CGFloat = 126
-        let thumbY = pad + metadataHeight + 8
-        let panelHeight = thumbY + thumbH + pad
+        let metadataHeight: CGFloat = 80
+        let thumbY = metadataHeight
+        let panelHeight = thumbY + thumbH
 
         let rect = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
 
-        thumbnail = DraggableImageView(frame:NSRect(x:pad,y:thumbY,width:thumbW,height:thumbH))
+        thumbnail = DraggableImageView(frame:NSRect(x:0,y:thumbY,width:thumbW,height:thumbH))
         let controls = NSView(frame: rect)
         controls.autoresizingMask = [.width,.height]
         if #available(macOS 26.0, *) {
@@ -79,10 +79,12 @@ final class OverlayWindow: NSObject {
         thumb.fileURL = shot.url
         thumb.imageScaling = .scaleProportionallyUpOrDown
         thumb.wantsLayer = true
-        thumb.layer?.cornerRadius = Self.cornerRadius - pad
+        thumb.fillsBounds = true
+        thumb.layer?.cornerRadius = Self.cornerRadius
+        thumb.layer?.maskedCorners = [.layerMinXMaxYCorner,.layerMaxXMaxYCorner]
         thumb.layer?.cornerCurve = .continuous
         thumb.layer?.masksToBounds = true
-        thumb.layer?.backgroundColor = NSColor(white: 0.5, alpha: 0.15).cgColor
+        thumb.autoresizingMask = [.minYMargin]
         // Hide the overlay while dragging so only the image moves with the cursor.
         thumb.onDragWillBegin = { [weak self] in self?.card.isHidden = true }
         thumb.onDragEnded = { [weak self] operation in
@@ -104,7 +106,8 @@ final class OverlayWindow: NSObject {
         ]
         for (i, tool) in tools.enumerated() {
             let b = makeToolButton(symbol: tool.0, title: tool.1, action: tool.2)
-            b.frame = NSRect(x:pad+8+CGFloat(i)*40,y:panelHeight-pad-8-32,width:32,height:32)
+            b.frame = NSRect(x:8+CGFloat(i)*40,y:panelHeight-8-32,width:32,height:32)
+            b.autoresizingMask = [.minYMargin]
             if tool.1 == "Markup" { b.isEnabled = !shot.isVideo }
             effect.addSubview(b)
         }
@@ -113,14 +116,15 @@ final class OverlayWindow: NSObject {
         // rounded corner doesn't clip them. Aligned on one row with a shadow.
         let iconSize: CGFloat = 32
         let inset: CGFloat = 8
-        let cornerY = panelHeight - pad - inset - iconSize
-        let closeX = panelWidth - pad - inset - iconSize
+        let cornerY = panelHeight - inset - iconSize
+        let closeX = panelWidth - inset - iconSize
 
         let close = makeCornerButton(symbol: "xmark.circle.fill",
                                      colors: [.white, NSColor.black.withAlphaComponent(0.6)],
                                      action: #selector(closeAction),
                                      tip: "Close (tap again to keep, or tap the trash to delete)")
         close.frame = NSRect(x: closeX, y: cornerY, width: iconSize, height: iconSize)
+        close.autoresizingMask = [.minYMargin]
         effect.addSubview(close)
 
         let deepRed = NSColor(srgbRed: 0.72, green: 0.06, blue: 0.10, alpha: 1.0)
@@ -129,13 +133,15 @@ final class OverlayWindow: NSObject {
                                        action: #selector(trashAction),
                                        tip: "Delete this screenshot")
         trashButton.frame = NSRect(x: closeX - iconSize - 8, y: cornerY, width: iconSize, height: iconSize)
+        trashButton.autoresizingMask = [.minYMargin]
         trashButton.isHidden = true
         effect.addSubview(trashButton)
 
         filenameLabel.frame = NSRect(x:pad,y:pad+94,width:thumbW,height:32)
-        filenameLabel.font = .systemFont(ofSize:11,weight:.semibold)
+        filenameLabel.font = .systemFont(ofSize:12)
+        filenameLabel.textColor = .secondaryLabelColor
         filenameLabel.maximumNumberOfLines = 2
-        filenameLabel.lineBreakMode = .byTruncatingMiddle
+        filenameLabel.lineBreakMode = .byWordWrapping
         filenameLabel.isSelectable = true
         filenameLabel.setAccessibilityLabel("Saved filename")
         filenameLabel.stringValue = shot.url.lastPathComponent
@@ -157,14 +163,16 @@ final class OverlayWindow: NSObject {
         acceptName.isHidden = true
         effect.addSubview(acceptName)
         descriptionLabel.frame = NSRect(x:pad,y:pad,width:thumbW,height:57)
-        descriptionLabel.font = .systemFont(ofSize:11)
-        descriptionLabel.textColor = .secondaryLabelColor
+        descriptionLabel.font = .systemFont(ofSize:14,weight:.semibold)
+        descriptionLabel.textColor = .labelColor
+        descriptionLabel.delegate = self
         descriptionLabel.maximumNumberOfLines = 3
         descriptionLabel.isSelectable = true
         descriptionLabel.setAccessibilityLabel("Screenshot description")
         descriptionLabel.stringValue = shot.isVideo ? "Screen recording" : "Description pending"
         effect.addSubview(descriptionLabel)
 
+        layoutMetadata()
         OverlayWindow.document.addSubview(card)
         OverlayWindow.stack.append(self)
         OverlayWindow.restack(animated: false, revealNewest: true)
@@ -176,15 +184,45 @@ final class OverlayWindow: NSObject {
         if analyzeAutomatically && !shot.isVideo { startAnalysis() }
     }
 
+    private func layoutMetadata() {
+        let width = card.frame.width, pad = Self.padding, textWidth = width-pad*2
+        func height(_ field:NSTextField,lines:Int) -> CGFloat {
+            let lineHeight = NSLayoutManager().defaultLineHeight(for:field.font!)
+            let measured = field.cell!.cellSize(forBounds:NSRect(x:0,y:0,width:textWidth,height:1000)).height
+            return ceil(max(lineHeight,min(lineHeight*CGFloat(lines)+2,measured)))
+        }
+        var y = pad
+        if !suggestedName.isHidden {
+            suggestedName.frame = NSRect(x:pad,y:y,width:textWidth-32,height:24)
+            acceptName.frame = NSRect(x:width-pad-28,y:y,width:28,height:24)
+            y += 30
+        }
+        let bodyHeight = height(filenameLabel,lines:2)
+        filenameLabel.frame = NSRect(x:pad,y:y,width:textWidth,height:bodyHeight)
+        y += bodyHeight + 6
+        let headlineHeight = height(descriptionLabel,lines:3)
+        descriptionLabel.frame = NSRect(x:pad,y:y,width:textWidth,height:headlineHeight)
+        y += headlineHeight + pad
+        let imageHeight = thumbnail.frame.height
+        card.setFrameSize(NSSize(width:width,height:y+imageHeight))
+        thumbnail.frame = NSRect(x:0,y:y,width:width,height:imageHeight)
+        if Self.stack.contains(where: { $0 === self }) { Self.restack(animated:true) }
+    }
+    func controlTextDidEndEditing(_ notification:Notification) {
+        if notification.object as? NSTextField === descriptionLabel { layoutMetadata() }
+    }
+
     private func startAnalysis() {
         // Serialize automatic work so a burst of screenshots doesn't run many
         // local models at once. Waiting never blocks capture, saving or dragging.
         descriptionLabel.stringValue = "Waiting for on-device description…"
+        layoutMetadata()
         let previous = Self.analysisTail
         let task = Task { @MainActor [weak self] in
             await previous?.value
             guard !Task.isCancelled,let self = self,!self.isDismissing else { return }
             self.descriptionLabel.stringValue = "Describing on this Mac…"
+            self.layoutMetadata()
             do {
                 let result = try await self.analyzer(self.shot.url)
                 guard !Task.isCancelled,!self.isDismissing else { return }
@@ -193,6 +231,7 @@ final class OverlayWindow: NSObject {
                 guard !Task.isCancelled,!self.isDismissing else { return }
                 self.descriptionLabel.stringValue = error.localizedDescription
                 self.descriptionLabel.toolTip = error.localizedDescription
+                self.layoutMetadata()
             }
         }
         analysisTask = task; Self.analysisTail = task
@@ -204,6 +243,7 @@ final class OverlayWindow: NSObject {
         descriptionLabel.stringValue = result.description
         descriptionLabel.toolTip = result.description
         descriptionLabel.isEditable = true
+        layoutMetadata()
     }
 
     @objc private func acceptSuggestedName() {
@@ -232,6 +272,7 @@ final class OverlayWindow: NSObject {
             overlay.thumbnail.fileURL = destination
             overlay.filenameLabel.stringValue = name; overlay.filenameLabel.toolTip = name
             overlay.suggestedName.isHidden = true; overlay.acceptName.isHidden = true
+            overlay.layoutMetadata()
         }
         NotificationCenter.default.post(name:Self.fileRenamed,object:nil,userInfo:["oldURL":original,"newURL":destination])
     }
@@ -267,7 +308,8 @@ final class OverlayWindow: NSObject {
         b.setAccessibilityLabel(title)
         b.font = .systemFont(ofSize: 11)
         b.contentTintColor = .labelColor
-        b.toolTip = title
+        b.toolTip = ["Copy":"Copy image to clipboard", "Reveal":"Show screenshot in Finder",
+                     "Pin":"Keep image floating above other windows", "Markup":"Edit and annotate screenshot"][title] ?? title
         let cfg = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
         b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?
             .withSymbolConfiguration(cfg)
@@ -401,6 +443,7 @@ private final class OverlayStackPanel: NSPanel {
         super.init(contentRect:.zero,styleMask:[.borderless,.nonactivatingPanel],backing:.buffered,defer:false)
         title = "Screenshot Previews"
         isFloatingPanel = true; level = .statusBar
+        allowsToolTipsWhenApplicationIsInactive = true
         collectionBehavior = [.canJoinAllSpaces,.fullScreenAuxiliary]
         backgroundColor = .clear; isOpaque = false; hasShadow = false
         scroller.drawsBackground = false
