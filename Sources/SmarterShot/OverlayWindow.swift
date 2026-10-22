@@ -184,11 +184,15 @@ final class OverlayWindow: NSObject {
                              width:288,height:viewportHeight),display:true)
         document.setFrameSize(NSSize(width:288,height:height))
         if host.scroller.documentView !== document { host.scroller.documentView = document }
-        let maximumOffset = max(0,height-viewportHeight)
+        // Finish native clip-view sizing before restoring its offset. Ordering
+        // a newly resized panel front can otherwise reset the pending scroll.
+        if stack.isEmpty { host.orderOut(nil) } else { host.orderFront(nil) }
+        host.scroller.tile()
+        host.scroller.layoutSubtreeIfNeeded()
+        let maximumOffset = max(0,height-host.scroller.contentView.bounds.height)
         let offset = revealNewest ? maximumOffset : min(maximumOffset,max(0,oldOffset))
         host.scroller.contentView.scroll(to:NSPoint(x:0,y:offset))
         host.scroller.reflectScrolledClipView(host.scroller.contentView)
-        if stack.isEmpty { host.orderOut(nil) } else { host.orderFront(nil) }
     }
 
     fileprivate static func relayoutForScreenChange() { restack(animated:false) }
