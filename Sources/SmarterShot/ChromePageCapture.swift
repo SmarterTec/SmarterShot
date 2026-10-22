@@ -55,7 +55,6 @@ import SmarterShotCore
     private var openedTools=false
     private var tools:AXUIElement?
     private var commandInput:AXUIElement?
-    private let command="Capture full size screenshot"
     init(windowID:CGWindowID,frame:CGRect) throws {
         guard let pid=ChromePageCapture.owner(windowID),let running=NSRunningApplication(processIdentifier:pid),running.bundleIdentifier == "com.google.Chrome" else { throw ChromeCaptureError.message("The selected Chrome window is no longer available.") }
         self.pid=pid;app=AXUIElementCreateApplication(pid)
@@ -110,13 +109,14 @@ import SmarterShotCore
             event.flags=flags;event.postToPid(pid)
         }
     }
-    private func waitFor(_ find:()->AXUIElement?) async throws -> AXUIElement {
+    private func waitFor(stage:String,_ find:()->AXUIElement?) async throws -> AXUIElement {
         for _ in 0..<30 {
             try Task.checkCancellation();try verify()
             if let result=find() { return result }
             try await Task.sleep(nanoseconds:100_000_000)
         }
-        throw ChromeCaptureError.message("Chrome’s full-page command couldn’t be verified. This prototype needs English Chrome with docked Developer Tools. Try Scroll Capture instead.")
+        CaptureController.log("Chrome Full Page timeout stage=\(stage)")
+        throw ChromeCaptureError.message("Chrome Full Page stopped while \(stage). Chrome’s controls didn’t match the expected command. You can use Scroll Capture while this prototype is being refined.")
     }
     func prepare() async throws {
         let existing=Self.nodes(window).first(where:Self.isTools)
@@ -131,7 +131,7 @@ import SmarterShotCore
         else {
             try key(34,flags:[.maskCommand,.maskAlternate]) // Cmd-Option-I
             // Mark only once the verified tools root actually appears.
-            tools=try await waitFor { Self.nodes(self.window).first(where:Self.isTools) }
+            tools=try await waitFor(stage:"finding Developer Tools") { Self.nodes(self.window).first(where:Self.isTools) }
             openedTools=true
         }
         guard let tools=tools else { throw ChromeCaptureError.message("Developer Tools couldn’t be verified.") }
@@ -151,25 +151,29 @@ import SmarterShotCore
         guard toolsHasFocus() else {
             throw ChromeCaptureError.message("Developer Tools couldn’t be focused safely. Click inside docked Developer Tools, then try again.")
         }
-        try key(35,flags:[.maskCommand,.maskShift]) // Cmd-Shift-P
-        let input=try await waitFor {
+        func prompt()->AXUIElement? {
             Self.nodes(tools).first { node in
-                let role=Self.text(node,kAXRoleAttribute)
-                let hint=[kAXPlaceholderValueAttribute,kAXDescriptionAttribute,kAXTitleAttribute].map {Self.text(node,$0)}.joined(separator:" ").lowercased()
-                return (role==kAXComboBoxRole || role==kAXTextFieldRole) && (hint.contains("command") || hint.contains("run") || hint.contains(">"))
+                ChromeCommandLabels.isPrompt(role:Self.text(node,kAXRoleAttribute),
+                    labels:[Self.text(node,kAXDescriptionAttribute),Self.text(node,kAXTitleAttribute)],
+                    value:Self.text(node,kAXValueAttribute))
             }
         }
+        // A failed previous capture may have left the command menu open.
+        // Reuse its verified input rather than toggling the menu closed.
+        if prompt() == nil { try key(35,flags:[.maskCommand,.maskShift]) }
+        let input=try await waitFor(stage:"finding the command search field",prompt)
         commandInput=input
-        guard AXUIElementSetAttributeValue(input,kAXValueAttribute as CFString,command as CFString) == .success else { throw ChromeCaptureError.message("Chrome’s command search couldn’t be filled safely.") }
+        guard AXUIElementSetAttributeValue(input,kAXValueAttribute as CFString,ChromeCommandLabels.query as CFString) == .success else { throw ChromeCaptureError.message("Chrome’s command search couldn’t be filled safely.") }
     }
     func invoke() async throws -> Int {
         guard let tools=tools else { throw ChromeCaptureError.message("Developer Tools is unavailable.") }
-        let result=try await waitFor {
-            Self.nodes(tools).first { node in
-                let name=Self.text(node,kAXTitleAttribute).trimmingCharacters(in:.whitespacesAndNewlines)
-                let description=Self.text(node,kAXDescriptionAttribute).trimmingCharacters(in:.whitespacesAndNewlines)
-                return [name,description].contains(self.command) || [name,description].contains("Screenshot \(self.command)")
+        let result=try await waitFor(stage:"finding the full-size screenshot result") {
+            let matches=Self.nodes(tools).filter { node in
+                [Self.text(node,kAXTitleAttribute),Self.text(node,kAXDescriptionAttribute),Self.text(node,kAXValueAttribute)]
+                    .contains(where:ChromeCommandLabels.isResult)
             }
+            // Prefer the selected option itself over its nested text label.
+            return matches.first { (Self.value($0,kAXSelectedAttribute) as? Bool) == true } ?? matches.first
         }
         try verify()
         let baseline=NSPasteboard.general.changeCount
@@ -177,7 +181,8 @@ import SmarterShotCore
             // Some Chrome versions expose the exact option but no AXPress action.
             // Return is allowed only with the command search still focused and exact.
             guard let input=commandInput,let focused=Self.value(app,kAXFocusedUIElementAttribute),
-                  CFEqual(focused,input),Self.text(input,kAXValueAttribute)==command else {
+                  CFEqual(focused,input),Self.text(input,kAXValueAttribute)==ChromeCommandLabels.query,
+                  (Self.value(result,kAXSelectedAttribute) as? Bool) == true else {
                 throw ChromeCaptureError.message("Chrome’s full-page command couldn’t be activated safely.")
             }
             try key(36)
@@ -200,6 +205,14 @@ import SmarterShotCore
         cleanupNotice="Developer Tools was left open because SmarterShot couldn’t safely close it. You can close it manually."
         guard (try? verify()) != nil,let tools=tools,
               Self.nodes(window).contains(where:{CFEqual($0,tools)}) else { return }
+        // Dismiss only our verified command palette before locating the tools close control.
+        if let input=commandInput,let focused=Self.value(app,kAXFocusedUIElementAttribute),CFEqual(focused,input),
+           Self.nodes(tools).contains(where:{CFEqual($0,input)}) {
+            try? key(53)
+            // Cancellation must not skip the small, bounded cleanup settlement.
+            await Task.detached { try? await Task.sleep(nanoseconds:120_000_000) }.value
+        }
+        guard (try? verify()) != nil else { return }
         // A close button scoped to our verified DevTools document cannot close a page/tab.
         if let close=Self.nodes(tools).first(where:{Self.text($0,kAXRoleAttribute)==kAXButtonRole && [Self.text($0,kAXTitleAttribute),Self.text($0,kAXDescriptionAttribute)].contains("Close")}) {
             if AXUIElementPerformAction(close,kAXPressAction as CFString) == .success { cleanupNotice=nil }

@@ -2,6 +2,17 @@ import Foundation
 
 @main struct Tests {
     @MainActor static func main() async throws {
+        precondition(ChromeCommandLabels.isPrompt(role:"AXTextField",labels:["Quick open prompt"],value:">"))
+        precondition(!ChromeCommandLabels.isPrompt(role:"AXTextField",labels:["Quick open prompt Suggestion"],value:">Command"))
+        precondition(!ChromeCommandLabels.isPrompt(role:"AXComboBox",labels:["Quick open prompt"],value:">"))
+        precondition(!ChromeCommandLabels.isPrompt(role:"AXTextField",labels:["Console prompt"],value:">"))
+        precondition(!ChromeCommandLabels.isPrompt(role:"AXTextField",labels:["Quick open prompt"],value:"file.ts"))
+        precondition(ChromeCommandLabels.query == ">Capture full size screenshot")
+        precondition(ChromeCommandLabels.isResult("Capture full size screenshot Screenshot"))
+        precondition(ChromeCommandLabels.isResult("Screenshot\nCapture full size screenshot"))
+        precondition(!ChromeCommandLabels.isResult("Capture screenshot Screenshot"))
+        precondition(!ChromeCommandLabels.isResult("Capture full size screenshot Screenshot unexpected"))
+        print("PASS observed Chrome prompt, command prefix, category order; suggestion/Console/other commands rejected")
         var cleaned=0,invoked=0,polls=0
         var driver=ChromeCaptureEngine.Driver(prepare:{},invoke:{invoked+=1;return 17},image:{ baseline in
             precondition(baseline==17);polls+=1

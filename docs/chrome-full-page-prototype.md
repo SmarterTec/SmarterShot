@@ -21,7 +21,9 @@ Prototype limits: English Chrome; docked DevTools; Accessibility must expose the
 4. Try a non-English browser, an undocked tools window and an inaccessible page. An honest failure is expected; no scrolling should start automatically.
 5. Use explicit Scroll Capture and a normal visible-window screenshot. Confirm both still work, with normal app folders, timestamp and automatic AI filename.
 
-The real Chrome command, accessibility tree, clipboard behavior and cleanup are **not yet desktop-tested**. No automated desktop test or installed-app restart is part of development validation.
+A read-only inspection after the first user test confirmed Chrome exposes the command field as `Quick open prompt`, with a separate suggestion field and a `>` command prefix. Matching now uses that field, preserves the prefix, accepts the category before or after the exact result title, and reuses an already-open command palette. Regression checks cover these labels and reject suggestion/Console/file-search fields. Timeout messages identify the failing stage rather than blaming language/docking.
+
+The corrected command invocation, clipboard behavior and cleanup are **not yet desktop-tested**. No automated desktop test or installed-app restart is part of development validation.
 
 ## Primary references
 

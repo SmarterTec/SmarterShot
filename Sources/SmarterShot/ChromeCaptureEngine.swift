@@ -36,3 +36,19 @@ enum ChromeCaptureError:LocalizedError {
     case message(String)
     var errorDescription:String? { if case .message(let text) = self { return text }; return nil }
 }
+
+/// Exact DevTools labels only; callers must first verify the devtools:// document.
+enum ChromeCommandLabels {
+    static let command = "Capture full size screenshot"
+    static let query = ">" + command
+    static func normalized(_ text:String)->String {
+        text.split(whereSeparator: { $0.isWhitespace }).joined(separator:" ")
+    }
+    static func isPrompt(role:String,labels:[String],value:String)->Bool {
+        guard role == "AXTextField",!labels.contains(where:{normalized($0).contains("Suggestion")}) else { return false }
+        return labels.contains { normalized($0) == "Quick open prompt" } && value.hasPrefix(">")
+    }
+    static func isResult(_ label:String)->Bool {
+        [command,"Screenshot " + command,command + " Screenshot"].contains(normalized(label))
+    }
+}
