@@ -11,9 +11,9 @@ final class SelectionOverlay: NSObject {
 
     private static var current: SelectionOverlay?
 
-    static func present(mode: Mode, completion: @escaping (RecordingTarget?) -> Void) {
+    static func present(mode: Mode, fullPage: ((CGWindowID, CGRect) -> Void)? = nil, completion: @escaping (RecordingTarget?) -> Void) {
         current?.finish(nil)
-        let overlay = SelectionOverlay(mode: mode, completion: completion)
+        let overlay = SelectionOverlay(mode: mode, fullPage: fullPage, completion: completion)
         current = overlay
         overlay.show()
     }
@@ -23,9 +23,12 @@ final class SelectionOverlay: NSObject {
     private var window: KeyableWindow!
     private var view: SelectionView!
     private var keyMonitor: Any?
+    private var finished = false
+    private let fullPage: ((CGWindowID, CGRect) -> Void)?
 
-    private init(mode: Mode, completion: @escaping (RecordingTarget?) -> Void) {
+    private init(mode: Mode, fullPage: ((CGWindowID, CGRect) -> Void)?, completion: @escaping (RecordingTarget?) -> Void) {
         self.mode = mode
+        self.fullPage = fullPage
         self.completion = completion
         super.init()
         build()
@@ -36,6 +39,7 @@ final class SelectionOverlay: NSObject {
         for s in NSScreen.screens { union = union == .zero ? s.frame : union.union(s.frame) }
 
         window = KeyableWindow(contentRect: union, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.title = "Select Window"
         window.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
         window.backgroundColor = .clear
         window.isOpaque = false
@@ -55,6 +59,13 @@ final class SelectionOverlay: NSObject {
         view.mode = mode
         view.unionOrigin = union.origin
         view.onFinish = { [weak self] target in self?.finish(target) }
+        if fullPage != nil {
+            view.onFullPage = { [weak self] id, rect in
+                guard let self = self, !self.finished else { return }
+                self.finish(nil, notify: false)
+                DispatchQueue.main.asyncAfter(deadline: .now()+0.15) { self.fullPage?(id, rect) }
+            }
+        }
         window.contentView = view
     }
 
@@ -69,11 +80,13 @@ final class SelectionOverlay: NSObject {
         }
     }
 
-    private func finish(_ target: RecordingTarget?) {
+    private func finish(_ target: RecordingTarget?, notify: Bool = true) {
+        guard !finished else { return }; finished = true
         if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
+        view?.cancelDetection()
         window?.orderOut(nil)
         if SelectionOverlay.current === self { SelectionOverlay.current = nil }
-        completion(target)
+        if notify { completion(target) }
     }
 }
 
@@ -87,6 +100,46 @@ private final class SelectionView: NSView {
     var mode: SelectionOverlay.Mode = .area
     var unionOrigin: NSPoint = .zero
     var onFinish: ((RecordingTarget?) -> Void)?
+    var onFullPage: ((CGWindowID, CGRect) -> Void)? { didSet { configureFullPage() } }
+    private var fullPageButton: NSButton?
+    private var availabilityTask: Task<Void,Never>?
+    private var availabilityWindow: CGWindowID?
+    private var availability: [CGWindowID:Bool] = [:]
+    private func configureFullPage() {
+        guard onFullPage != nil else { return }
+        let button = NSButton(title: "Full Page", target: self, action: #selector(chooseFullPage))
+        button.bezelStyle = .rounded
+        if #available(macOS 26.0, *) { button.bezelStyle = .glass }
+        button.toolTip = "Scroll and capture the entire page (Shift-click the window). Requires Accessibility access."
+        button.setAccessibilityLabel("Capture Full Page")
+        addSubview(button); fullPageButton = button; updateFullPagePosition()
+    }
+    private func updateFullPagePosition() {
+        guard let button = fullPageButton else { return }
+        guard let hovered = hoverWindow else { button.isHidden = true; return }
+        if availabilityWindow != hovered.id {
+            availabilityWindow = hovered.id
+            availabilityTask?.cancel()
+            if availability[hovered.id] == nil {
+                button.isEnabled = false
+                availabilityTask = Task { @MainActor [weak self] in
+                    let supported = await ScrollCapture.supports(windowID:hovered.id,frame:hovered.cgRect)
+                    guard !Task.isCancelled, let self = self else { return }
+                    self.availability[hovered.id] = supported
+                    self.updateFullPagePosition()
+                }
+            }
+        }
+        button.isEnabled = availability[hovered.id] == true
+        button.isHidden = availability[hovered.id] == false
+        let rect = cgToView(hovered.cgRect)
+        button.frame = NSRect(x: max(12, min(bounds.width-132, rect.midX-60)),
+            y: max(12, min(bounds.height-48, rect.maxY-52)), width: 120, height: 36)
+    }
+    func cancelDetection() { availabilityTask?.cancel(); availabilityTask = nil }
+    @objc private func chooseFullPage() {
+        if let hovered = hoverWindow { onFullPage?(hovered.id, hovered.cgRect) }
+    }
 
     private var dragStart: NSPoint?     // global (AppKit)
     private var dragCurrent: NSPoint?
@@ -114,7 +167,7 @@ private final class SelectionView: NSView {
                                owner: self, userInfo: nil)
         addTrackingArea(t)
         tracking = t
-        if mode == .window { hoverWindow = windowUnderCursor(); needsDisplay = true }
+        if mode == .window { hoverWindow = windowUnderCursor(); updateFullPagePosition(); needsDisplay = true }
     }
 
     /// Height of the primary display, used to flip AppKit↔CoreGraphics Y.
@@ -155,10 +208,10 @@ private final class SelectionView: NSView {
     }
     override func mouseDragged(with event: NSEvent) {
         if mode == .area { dragCurrent = NSEvent.mouseLocation; needsDisplay = true }
-        else { hoverWindow = windowUnderCursor(); needsDisplay = true }
+        else { hoverWindow = windowUnderCursor(); updateFullPagePosition(); needsDisplay = true }
     }
     override func mouseMoved(with event: NSEvent) {
-        if mode == .window { hoverWindow = windowUnderCursor(); needsDisplay = true }
+        if mode == .window { hoverWindow = windowUnderCursor(); updateFullPagePosition(); needsDisplay = true }
     }
     override func mouseUp(with event: NSEvent) {
         if mode == .area {
@@ -171,7 +224,8 @@ private final class SelectionView: NSView {
             // Look up the window under the cursor fresh at click time.
             if let hw = windowUnderCursor() ?? hoverWindow {
                 CaptureController.log("WINDOW PICK id=\(hw.id) rect=\(hw.cgRect)")
-                onFinish?(.window(hw.id, hw.cgRect))
+                if event.modifierFlags.contains(.shift), onFullPage != nil { onFullPage?(hw.id, hw.cgRect) }
+                else { onFinish?(.window(hw.id, hw.cgRect)) }
             } else {
                 CaptureController.log("WINDOW PICK failed — no window under cursor")
                 onFinish?(nil)

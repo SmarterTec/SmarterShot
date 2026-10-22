@@ -6,9 +6,12 @@ All notable changes to SmarterShot. This project follows
 ## [Unreleased]
 
 ### Changed
+- Automatically apply the AI filename to new saved captures when analysis completes,
+  retaining capture timestamp and OS app identity. Preserve existing files with
+  collision suffixes; imported review fixtures remain read-only.
 - Text-free animated loading skeletons replace AI progress labels in previews.
   Show one inline-editable AI filename and description, without a separate saved
-  filename or acceptance button. Committing a filename edit renames the file.
+  filename or acceptance button. AI completion and inline filename edits rename the file.
 - Capture app identity from macOS at screenshot time, preserve it as file metadata,
   and use it in saved and suggested filenames instead of relying on AI guesses.
   Window captures use the existing window picker to retain the selected window ID.
@@ -17,7 +20,7 @@ All notable changes to SmarterShot. This project follows
 - Preview controls float over the image using native glass capsules; the saved
   filename, editable AI name suggestion and description appear below it.
 - On-device preview descriptions run after capture in a background queue. Accept
-  filename suggestions explicitly; preserve existing files and open markup paths.
+  filename suggestions automatically; preserve existing files and open markup paths.
 - Markup uses native glass tool/zoom controls and the system popover background.
 - Thumbnail corners follow the concentric parent-radius-minus-inset relationship.
 - Native Liquid Glass screenshot bubbles on macOS 26 and later, with interactive
@@ -32,6 +35,11 @@ All notable changes to SmarterShot. This project follows
   name when identifiable. Imported images fall back to their file date.
 
 ### Added
+- Extension-free Full Page capture from the window picker or Shift-click. Detect
+  adjustable Accessibility scrollbars, scroll/stitch locally, show progress and
+  Cancel, and restore the original position. Only explicit Full Page requests
+  explain the additional Accessibility access. Unsupported/dynamic content fails
+  safely without saving a partial page.
 - Optional “Organize screenshots by app” setting for new captures. Uses the
   source app recorded by macOS; unknown apps go in Other. Off by default.
 - On-device AI tester: choose a screenshot, review editable filename and description

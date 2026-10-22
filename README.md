@@ -101,7 +101,9 @@ there is no visible scrollbar or six-preview limit. Compact native glass control
 float over the thumbnail. A loading skeleton animates while on-device analysis
 runs. Below the image, the description is an editable headline with one editable
 AI filename underneath. Click into either field to edit; Return or clicking away
-commits a filename edit. Existing files are never overwritten, and renaming is
+commits a filename edit. When analysis finishes, the AI filename automatically
+renames the saved capture, retaining its timestamp and OS-recorded app name.
+Name collisions receive a numeric suffix. Existing files are never overwritten, and renaming is
 blocked while that image is open in markup. Escape cancels a filename edit.
 New screenshots record the source app from macOS, include it with the timestamp
 in the saved name, and use that recorded app in AI filename suggestions. Window
@@ -130,7 +132,7 @@ suggestion and **Copy Suggestions** copies your reviewed text.
 
 The separate tester is manual and read-only: images are not renamed or modified
 by its analysis or Copy action. Capture previews also analyze images in the
-background; committing an inline filename edit renames that file. Generation uses only Apple's
+background and automatically apply the AI filename; inline edits can rename it again. Generation uses only Apple's
 `SystemLanguageModel` on this Mac, with no cloud provider, API key, or fallback.
 Image analysis needs macOS 27 and Apple Intelligence enabled with its model ready.
 The tester explains unavailability instead of switching services. Descriptions
@@ -183,3 +185,32 @@ MIT
 Run `./test-markup.sh` for the standalone AppKit checks covering curve bending,
 additional points, undo/redo, drawing tools, export dimensions, and cropping.
 An existing image can be opened with `SmarterShot --markup /path/to/image.png`.
+
+## Full Page screenshots (no extensions)
+
+Use **Capture Window**, then choose **Full Page** over the highlighted window,
+or Shift-click it. A normal click still captures the visible window. On macOS
+15.2 or later, SmarterShot detects supported scrollable content using macOS
+Accessibility. If access is missing, only choosing Full Page explains how to
+enable it; regular screenshots and app startup do not request Accessibility.
+
+Full Page visibly scrolls the largest supported vertical content area, captures
+overlapping sections, and stitches them entirely on this Mac. No browser
+extension, remote debugging, web-page reload, or cloud service is used. The result
+contains the scrollable content rather than repeated window/browser chrome.
+Progress and Cancel are available, and the original scrollbar position is
+restored after success, cancellation, or failure. A failed restore is reported.
+The saved image uses the same app folders and on-device AI preview/naming flow.
+
+Apps must expose an adjustable vertical scrollbar through Accessibility. The
+button is hidden for unsupported windows once access is enabled. Dynamic pages,
+infinite feeds, protected content and ambiguous/repeated overlaps may not work;
+SmarterShot reports failure rather than saving an incomplete full-page image.
+Capture is limited to 100 sections, one minute, and 40 million output pixels.
+Keep the selected window in place while capturing. Existing screen-capture
+permission is used; Accessibility is an additional opt-in for this feature.
+
+Run `./test-scroll.sh` for pixel-level stitching, sticky footers, size/section
+limits, scroll restoration, failed capture and cancellation checks. `./test-selection.sh`
+checks the native Full Page button, Shift-click, Escape, and the unchanged
+recording picker.

@@ -13,6 +13,7 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
     private let descriptionLabel = NSTextField(wrappingLabelWithString: "")
     private let skeleton = PreviewLoadingSkeleton()
     private var isLoading = false
+    private let automaticallyRename: Bool
     private let analyzer: @MainActor (URL) async throws -> ScreenshotAISuggestion
     private var analysisTask: Task<Void,Never>?
     private static var analysisTail: Task<Void,Never>?
@@ -32,9 +33,10 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
     private static let host = OverlayStackPanel()
     private static let document = NSView()
 
-    init(shot: CaptureController.Shot, analyzeAutomatically: Bool = true, analyzer: @escaping @MainActor (URL) async throws -> ScreenshotAISuggestion = ScreenshotAIService.describe) {
+    init(shot: CaptureController.Shot, analyzeAutomatically: Bool = true, automaticallyRename: Bool = true, analyzer: @escaping @MainActor (URL) async throws -> ScreenshotAISuggestion = ScreenshotAIService.describe) {
         self.shot = shot
         self.analyzer = analyzer
+        self.automaticallyRename = automaticallyRename
 
         let panelWidth: CGFloat = 288
         let pad = Self.padding
@@ -244,6 +246,14 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
     func showSuggestion(_ result: ScreenshotAISuggestion) {
         filenameLabel.stringValue = result.suggestedFilename(for:shot.url,sourceAppName:shot.sourceAppName)
         filenameLabel.toolTip = filenameLabel.stringValue
+        if automaticallyRename {
+            do { try useSuggestedFilename(avoidCollision:true) }
+            catch {
+                let suggestion = filenameLabel.stringValue
+                filenameLabel.stringValue = shot.url.lastPathComponent
+                filenameLabel.toolTip = "Suggested: " + suggestion + " — " + error.localizedDescription
+            }
+        }
         descriptionLabel.stringValue = result.description
         descriptionLabel.toolTip = result.description
         descriptionLabel.isEditable = true
@@ -252,7 +262,7 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
 
     /// Committing a filename edit may move a saved file. Never overwrite
     /// another screenshot, change its image extension, or invalidate an open editor.
-    func useSuggestedFilename() throws {
+    func useSuggestedFilename(avoidCollision:Bool = false) throws {
         let name = filenameLabel.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
         guard !name.isEmpty,!name.contains("/"),!name.contains(":"),!name.contains("\n"),
               name.utf8.count <= 240,(name as NSString).pathExtension.lowercased() == shot.url.pathExtension.lowercased(),
@@ -260,12 +270,20 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
             throw NSError(domain:"SmarterShot",code:1,userInfo:[NSLocalizedDescriptionKey:"Choose a valid filename with the same image extension, and finish open markup before renaming."])
         }
         let original = shot.url
-        let destination = original.deletingLastPathComponent().appendingPathComponent(name)
+        var destination = original.deletingLastPathComponent().appendingPathComponent(name)
+        if avoidCollision && destination != original {
+            let stem = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
+            var suffix = 2
+            while FileManager.default.fileExists(atPath:destination.path) {
+                destination = original.deletingLastPathComponent().appendingPathComponent(stem+" (\(suffix))."+ext)
+                suffix += 1
+            }
+        }
         if destination != original { try FileManager.default.moveItem(at:original,to:destination) }
         for overlay in Self.stack where overlay.shot.url == original {
             overlay.shot = CaptureController.Shot(url:destination,image:overlay.shot.image,isVideo:overlay.shot.isVideo,sourceAppName:overlay.shot.sourceAppName)
             overlay.thumbnail.fileURL = destination
-            overlay.filenameLabel.stringValue = name; overlay.filenameLabel.toolTip = name
+            overlay.filenameLabel.stringValue = destination.lastPathComponent; overlay.filenameLabel.toolTip = destination.lastPathComponent
             overlay.layoutMetadata()
         }
         NotificationCenter.default.post(name:Self.fileRenamed,object:nil,userInfo:["oldURL":original,"newURL":destination])

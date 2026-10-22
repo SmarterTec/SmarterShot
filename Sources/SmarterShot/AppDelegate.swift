@@ -50,7 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
                 for path in paths {
                     let url = URL(fileURLWithPath:path)
                     guard let image = NSImage(contentsOf:url) else { continue }
-                    _ = OverlayWindow(shot:CaptureController.Shot(url:url,image:image))
+                    _ = OverlayWindow(shot:CaptureController.Shot(url:url,image:image),automaticallyRename:false)
                 }
             }
         }
@@ -62,6 +62,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     func applicationShouldTerminate(_ sender:NSApplication) -> NSApplication.TerminateReply {
+        if ScrollCapture.isRunning {
+            Task { @MainActor in
+                await ScrollCapture.cancelAndWait()
+                MarkupWindow.reviewBeforeQuitting { accepted in sender.reply(toApplicationShouldTerminate:accepted) }
+            }
+            return .terminateLater
+        }
         guard MarkupWindow.hasUnsavedEditors else { return .terminateNow }
         DispatchQueue.main.async {
             MarkupWindow.reviewBeforeQuitting { accepted in sender.reply(toApplicationShouldTerminate:accepted) }
@@ -218,7 +225,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func canCapture() -> Bool {
-        CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess()
+        guard MainActor.assumeIsolated({ !ScrollCapture.isRunning }) else { return false }
+        return CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess()
     }
 
     @objc private func captureArea() {

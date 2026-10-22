@@ -44,7 +44,9 @@ enum CaptureController {
         // The selected window ID provides an authoritative owning application.
         // Reuse the existing window selector rather than guessing the frontmost
         // app after Apple's interactive capture tool has finished.
-        SelectionOverlay.present(mode:.window) { target in
+        SelectionOverlay.present(mode:.window, fullPage: { id, frame in
+            MainActor.assumeIsolated { ScrollCapture.start(windowID:id,frame:frame,completion:completion) }
+        }) { target in
             guard case .window(let id,_) = target else { completion(nil); return }
             let name = CaptureSourceContext.applicationName(windowID:id) ?? ""
             run(arguments:["-l",String(id)],ext:"png",isVideo:false,sourceAppName:name,completion:completion)
