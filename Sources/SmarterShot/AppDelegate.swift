@@ -14,7 +14,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     private var recordAreaHotKey: HotKey?
     private var recordWindowHotKey: HotKey?
     private var lastShot: CaptureController.Shot?
-    @MainActor private var aiTester: AITesterWindow?
     private var configController: ConfigWindowController?
 
     private var areaMenuItem: NSMenuItem!
@@ -35,12 +34,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         // Useful for local release rehearsals and scripted, user-initiated checks.
         if CommandLine.arguments.contains("--check-for-updates") {
             DispatchQueue.main.async { [weak self] in self?.appUpdater.check() }
-        }
-        if let index = CommandLine.arguments.firstIndex(of: "--ai-tester") {
-            let path = CommandLine.arguments.indices.contains(index + 1) ? CommandLine.arguments[index + 1] : nil
-            DispatchQueue.main.async { [weak self] in
-                self?.openAITester(screenshot: path.map { URL(fileURLWithPath: $0) })
-            }
         }
         // Read-only preview rehearsal using existing files, without new captures
         // or clipboard changes. Keep the normal menu and shortcuts running.
@@ -111,7 +104,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         menu.addItem(withTitle: "Pin Last Screenshot", action: #selector(pinLast), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        menu.addItem(withTitle: "Test On-Device AI…", action: #selector(showAITester), keyEquivalent: "")
         menu.addItem(withTitle: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: "")
         menu.addItem(.separator())
         checkUpdatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
@@ -257,14 +249,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     @MainActor func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         menuItem === checkUpdatesItem ? appUpdater.canCheck : true
-    }
-
-    @MainActor @objc private func showAITester() {
-        openAITester(screenshot:lastShot.flatMap { $0.isVideo ? nil : $0.url })
-    }
-    @MainActor private func openAITester(screenshot:URL?) {
-        if aiTester == nil { aiTester = AITesterWindow() }
-        aiTester?.present(screenshot:screenshot)
     }
 
     @MainActor @objc private func checkForUpdates() { appUpdater.check() }

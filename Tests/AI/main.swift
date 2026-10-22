@@ -1,6 +1,5 @@
 import AppKit
 
-@MainActor func drain() async { for _ in 0..<8 { await Task.yield() } }
 @MainActor func checks() async throws {
     _ = NSApplication.shared
     let folder = URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent(".build/ai-tests/fixtures")
@@ -10,37 +9,6 @@ import AppKit
     let first = folder.appendingPathComponent("first.png"), second = folder.appendingPathComponent("second.png")
     try bytes.write(to:first); try bytes.write(to:second)
     let expectedSecond = ScreenshotAISuggestion(filename:"Second Image.png",description:"").suggestedFilename(for:second)
-    var replies:[URL:CheckedContinuation<ScreenshotAISuggestion,Never>] = [:]
-    let tester = AITesterWindow { url in await withCheckedContinuation { replies[url] = $0 } }
-    tester.loadScreenshot(first); tester.analyze(); await drain()
-    assert(tester.isAnalyzing && replies[first] != nil)
-    tester.loadScreenshot(second); tester.analyze(); await drain()
-    assert(tester.isAnalyzing && replies[second] != nil)
-    replies[second]!.resume(returning:ScreenshotAISuggestion(filename:"Second Image.png",description:"The newer image."))
-    await drain()
-    assert(tester.suggestedFilename == expectedSecond && tester.suggestedDescription == "The newer image.")
-    // Deliberately complete an analyzer that ignores cancellation. Its old
-    // response must never replace the currently selected screenshot's results.
-    replies[first]!.resume(returning:ScreenshotAISuggestion(filename:"wrong",description:"Outdated result"))
-    await drain()
-    assert(tester.suggestedFilename == expectedSecond)
-    tester.analyze(); await drain(); tester.windowWillClose(Notification(name:NSWindow.willCloseNotification,object:tester.window))
-    replies[second]!.resume(returning:ScreenshotAISuggestion(filename:"canceled",description:"Must not appear"))
-    await drain()
-    assert(!tester.isAnalyzing && tester.suggestedFilename == expectedSecond && tester.statusMessage.contains("Canceled"))
-    let afterFirst = try Data(contentsOf:first), afterSecond = try Data(contentsOf:second)
-    assert(afterFirst == bytes && afterSecond == bytes,"Preview testing must never modify source files")
-    tester.window?.contentView?.layoutSubtreeIfNeeded()
-    func views(_ v:NSView)->[NSView] { [v]+v.subviews.flatMap(views) }
-    let fields = views(tester.window!.contentView!)
-    assert(fields.compactMap { $0 as? NSTextField }.contains { $0.isEditable && $0.stringValue == expectedSecond })
-    assert(fields.compactMap { $0 as? NSTextView }.contains { $0.isEditable && $0.string == "The newer image." })
-    tester.close()
-    let failing = AITesterWindow { _ in throw ScreenshotAIService.Failure.unavailable("On-device model unavailable") }
-    failing.loadScreenshot(first); failing.analyze(); await drain()
-    assert(!failing.isAnalyzing && failing.statusMessage.contains("On-device model unavailable"))
-    assert(failing.suggestedFilename.isEmpty && failing.suggestedDescription.isEmpty)
-    failing.close()
     do { _ = try await ScreenshotAIService.describe(URL(string:"https://example.com/screenshot.png")!); assertionFailure("Remote image URLs must be rejected") }
     catch ScreenshotAIService.Failure.invalidImage {}
     assert(ScreenshotAISuggestion(filename:"../../A:B/C.PNG",description:" a\n b ").filenameStem == "a-b-c")
@@ -119,16 +87,7 @@ import AppKit
     canceledOCR.cancel()
     do { _ = try await canceledOCR.value; assertionFailure("Canceled OCR must not return evidence") }
     catch is CancellationError {}
-    print("AI tester checks passed: read-only previews, editable results, cancellation, stale-result rejection, unavailable model, and local files only.")
-    if CommandLine.arguments.count == 2 {
-        let url = URL(fileURLWithPath:CommandLine.arguments[1])
-        let before = try Data(contentsOf:url)
-        let suggestion = try await ScreenshotAIService.describe(url)
-        let after = try Data(contentsOf:url)
-        assert(after == before)
-        print("On-device filename: \(suggestion.suggestedFilename(for:url))")
-        print("On-device description: \(suggestion.description)")
-    }
+    print("AI service checks passed: local-only input, safe timestamp/app filenames, app-folder routing, metadata preservation, OCR grounding and cancellation.")
 }
 Task { @MainActor in
     do { try await checks(); exit(0) }

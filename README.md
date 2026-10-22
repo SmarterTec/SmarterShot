@@ -119,28 +119,21 @@ in folders such as `Screenshots/Blender/`. It is off by default. Unknown apps go
 in `Other`; recordings and existing files stay where they are. Inline filename
 edits and markup copies stay in the same app folder.
 
-## On-device AI tester
+## On-device screenshot descriptions
 
-Choose **Test On-Device AI…** from SmarterShot's menu-bar menu, select a screenshot,
-and click **Analyze**. Suggested filenames preserve the capture timestamp, followed
-by the app name when identifiable and a short subject (for example,
-`2026-10-21 at 08.57.48 - Blender - rear-bumper.png`). For imported images without
-a timestamp in the name, the file's creation date is used. Apple's local Vision
-text recognition reads visible interface labels to help ground the on-device
-model's filename and short preview description. Both results are editable; **Try Again** generates another
-suggestion and **Copy Suggestions** copies your reviewed text.
+New captures automatically generate a preview description and rename the saved
+file with the capture timestamp, OS-recorded app name, and a short subject, for
+example `2026-10-21 at 08.57.48 - Blender - rear-bumper.png`. Both preview fields
+are editable. Apple's local Vision text recognition reads visible interface
+labels to help ground the on-device model's interpretation.
 
-The separate tester is manual and read-only: images are not renamed or modified
-by its analysis or Copy action. Capture previews also analyze images in the
-background and automatically apply the AI filename; inline edits can rename it again. Generation uses only Apple's
-`SystemLanguageModel` on this Mac, with no cloud provider, API key, or fallback.
-Image analysis needs macOS 27 and Apple Intelligence enabled with its model ready.
-The tester explains unavailability instead of switching services. Descriptions
-may be inaccurate; review samples before using them for filenames or metadata.
+Generation uses only Apple's `SystemLanguageModel` on this Mac, with no cloud
+provider, API key, or fallback. Image analysis needs macOS 27 and Apple
+Intelligence enabled with its model ready. If unavailable, screenshots still save
+with their capture timestamp and app name. Descriptions may be inaccurate.
 
-For a local check: `./test-ai.sh` exercises read-only UI behavior, cancellation,
-and image switching. To test the actual model with a chosen local image, use
-`./test-ai.sh /absolute/path/to/screenshot.png`.
+For automated service checks, run `./test-ai.sh`; preview queue/cancellation and
+filename behavior are covered by `./test-overlays.sh`.
 
 ## In-app updates
 

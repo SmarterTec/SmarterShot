@@ -19,7 +19,7 @@ All notable changes to SmarterShot. This project follows
   headline above filename body text. Action tooltips work while the app is inactive.
 - Preview controls float over the image using native glass capsules; the saved
   filename, editable AI name suggestion and description appear below it.
-- On-device preview descriptions run after capture in a background queue. Accept
+- On-device preview descriptions run after capture in a background queue. Apply
   filename suggestions automatically; preserve existing files and open markup paths.
 - Markup uses native glass tool/zoom controls and the system popover background.
 - Thumbnail corners follow the concentric parent-radius-minus-inset relationship.
@@ -42,9 +42,10 @@ All notable changes to SmarterShot. This project follows
   safely without saving a partial page.
 - Optional “Organize screenshots by app” setting for new captures. Uses the
   source app recorded by macOS; unknown apps go in Other. Off by default.
-- On-device AI tester: choose a screenshot, review editable filename and description
-  suggestions, retry, or copy the results. Uses only Apple's local model, with no
-  cloud fallback. The separate tester remains read-only.
+
+### Removed
+- Separate developer AI testing window, its menu command, and its launch flag.
+  Automatic on-device capture descriptions and filenames remain available.
 
 ## [1.4.0] - 2026-10-22
 
