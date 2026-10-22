@@ -38,6 +38,8 @@ ns={'s':'http://www.andymatuschak.org/xml-namespaces/sparkle'}
 root=ET.parse(folder/'appcast.xml').getroot()
 items=root.findall('./channel/item'); assert len(items)==1
 item=items[0]; enclosure=item.find('enclosure'); assert enclosure is not None
+notes=item.find('description'); assert notes is not None
+assert '<h3>' in notes.text and '<ul>' in notes.text and '### Added' not in notes.text, 'Release notes must be rendered HTML, not raw Markdown'
 archive=folder/pathlib.PurePosixPath(enclosure.attrib['url']).name
 assert enclosure.attrib['url']==f'https://github.com/SmarterTec/SmarterShot/releases/download/{folder.name.removeprefix("update-")}/{archive.name}'
 assert archive.stat().st_size==int(enclosure.attrib['length'])

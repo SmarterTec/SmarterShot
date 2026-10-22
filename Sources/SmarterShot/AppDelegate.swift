@@ -30,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
         setupStatusItem()
         appUpdater.start()
+        // Useful for local release rehearsals and scripted, user-initiated checks.
+        if CommandLine.arguments.contains("--check-for-updates") {
+            DispatchQueue.main.async { [weak self] in self?.appUpdater.check() }
+        }
         rebind(warnOnFailure: false)
 
         if !ShortcutStore.hasCompletedOnboarding {

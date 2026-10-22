@@ -21,7 +21,8 @@ if ! security find-identity -v -p codesigning "$SIGN_KC" | grep -Fqi "$SIGN_ID";
 fi
 
 echo "Building release binary..."
-swift build -c release >/dev/null
+# Use the standalone SwiftPM engine with Command Line Tools (no Xcode project).
+swift build --build-system native -c release >/dev/null
 
 echo "Assembling app bundle..."
 rm -rf "$APP"

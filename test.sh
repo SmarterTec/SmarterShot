@@ -4,4 +4,4 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
-swift run SmarterShotTests "$@"
+swift run --build-system native SmarterShotTests "$@"

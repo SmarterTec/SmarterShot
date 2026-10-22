@@ -16,20 +16,8 @@ OUT="$PWD/dist/update-v$VERSION"
 mkdir -p "$OUT"
 ARCHIVE="SmarterShot-v$VERSION.zip"
 ditto -c -k --sequesterRsrc --keepParent dist/SmarterShot.app "$OUT/$ARCHIVE"
-# Embedded plain release notes avoid third-party HTML or tracking resources.
-python3 - "$VERSION" "$OUT/${ARCHIVE%.zip}.txt" <<'PY'
-from pathlib import Path
-import sys
-version, output = sys.argv[1:]
-text = Path('CHANGELOG.md').read_text()
-marker = f'## [{version}]'
-if marker not in text:
-    marker = '## [Unreleased]'
-notes = text.split(marker, 1)[1].split('\n## [', 1)[0].strip()
-# Remove the dated heading tail when packaging a tagged changelog entry.
-if notes.startswith('- '): notes = notes.split('\n', 1)[-1].strip()
-Path(output).write_text(notes or f'SmarterShot {version}')
-PY
+# Sparkle renders the HTML fragment; GitHub receives the Markdown text.
+python3 scripts/render-release-notes.py "$VERSION" "$OUT/${ARCHIVE%.zip}"
 "$TOOLS/generate_appcast" --account app.smartershot.SmarterShot \
     --download-url-prefix "https://github.com/SmarterTec/SmarterShot/releases/download/v$VERSION/" \
     --link 'https://github.com/SmarterTec/SmarterShot' \
