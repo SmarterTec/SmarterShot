@@ -99,8 +99,9 @@ Choose **Test On-Device AI…** from SmarterShot's menu-bar menu, select a scree
 and click **Analyze**. Suggested filenames preserve the capture timestamp, followed
 by the app name when identifiable and a short subject (for example,
 `2026-10-21 at 08.57.48 - Blender - rear-bumper.png`). For imported images without
-a timestamp in the name, the file's creation date is used. Apple's on-device model suggests a filename and a short
-preview description. Both results are editable; **Try Again** generates another
+a timestamp in the name, the file's creation date is used. Apple's local Vision
+text recognition reads visible interface labels to help ground the on-device
+model's filename and short preview description. Both results are editable; **Try Again** generates another
 suggestion and **Copy Suggestions** copies your reviewed text.
 
 This is a manual, read-only tester: images are not renamed or modified, and new

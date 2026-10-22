@@ -54,6 +54,25 @@ import AppKit
     let fileDate = try second.resourceValues(forKeys:[.creationDateKey]).creationDate!
     let formatter = DateFormatter(); formatter.locale = Locale(identifier:"en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
     assert(expectedSecond == formatter.string(from:fileDate) + " - second-image.png")
+    // Exercise the actual local OCR pipeline on a different subject so this
+    // cannot pass through a hard-coded correction for the bumper screenshot.
+    let labelImage = NSImage(size:NSSize(width:900,height:240))
+    labelImage.lockFocus()
+    NSColor.white.setFill(); NSRect(x:0,y:0,width:900,height:240).fill()
+    ("Selected object: bicycle front wheel" as NSString).draw(at:NSPoint(x:30,y:100),
+        withAttributes:[.font:NSFont.systemFont(ofSize:36),.foregroundColor:NSColor.black])
+    labelImage.unlockFocus()
+    let labelURL = folder.appendingPathComponent("object-label.png")
+    let labelRep = NSBitmapImageRep(data:labelImage.tiffRepresentation!)!
+    try labelRep.representation(using:.png,properties:[:])!.write(to:labelURL)
+    let localText = try await ScreenshotAIService.recognizedText(in:labelURL)
+    assert(localText.lowercased().contains("bicycle front wheel"), "Local OCR should preserve visible subject labels")
+    do { _ = try await ScreenshotAIService.recognizedText(in:URL(string:"https://example.com/image.png")!); assertionFailure("OCR must reject remote URLs") }
+    catch ScreenshotAIService.Failure.invalidImage {}
+    let canceledOCR = Task { try Task.checkCancellation(); return try await ScreenshotAIService.recognizedText(in:labelURL) }
+    canceledOCR.cancel()
+    do { _ = try await canceledOCR.value; assertionFailure("Canceled OCR must not return evidence") }
+    catch is CancellationError {}
     print("AI tester checks passed: read-only previews, editable results, cancellation, stale-result rejection, unavailable model, and local files only.")
     if CommandLine.arguments.count == 2 {
         let url = URL(fileURLWithPath:CommandLine.arguments[1])

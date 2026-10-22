@@ -6,6 +6,8 @@ All notable changes to SmarterShot. This project follows
 ## [Unreleased]
 
 ### Changed
+- Ground AI descriptions in locally recognized interface text, including selected
+  object labels, to improve ambiguous subject identification. No cloud processing.
 - AI filename suggestions retain the capture timestamp and include the application
   name when identifiable. Imported images fall back to their file date.
 
