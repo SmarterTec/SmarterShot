@@ -220,6 +220,42 @@ cropCanvas.undoEdit()
 assert(!cropCanvas.hasUnsavedChanges,"Undoing the only edit must restore a clean document")
 print("Crop draft checks passed: image pan, image zoom, frame resize, cancel, apply, export, and dirty state.")
 
+// Route real line-wheel events to view zoom or the crop source transform.
+let wheelCanvas = MarkupCanvas(image:source)
+let wheelScroll = MarkupScrollView(frame:NSRect(x:0,y:0,width:320,height:240))
+wheelScroll.contentView = MarkupClipView()
+wheelScroll.allowsMagnification = true; wheelScroll.minMagnification = 0.05; wheelScroll.maxMagnification = 8
+wheelScroll.documentView = wheelCanvas
+let wheelWindow = NSWindow(contentRect:wheelScroll.frame,styleMask:[.borderless],backing:.buffered,defer:false)
+wheelWindow.contentView = wheelScroll
+func wheel(_ delta:Int32, precise:Bool=false, option:Bool=false) -> NSEvent {
+    let cg = CGEvent(scrollWheelEvent2Source:nil,units:precise ? .pixel : .line,wheelCount:1,wheel1:delta,wheel2:0,wheel3:0)!
+    if option { cg.flags = .maskAlternate }
+    return NSEvent(cgEvent:cg)!
+}
+let viewZoom = wheelScroll.magnification
+wheelScroll.scrollWheel(with:wheel(3))
+assert(wheelScroll.magnification > viewZoom && !wheelCanvas.hasUnsavedChanges)
+wheelScroll.scrollWheel(with:wheel(-3))
+assert(abs(wheelScroll.magnification-viewZoom) < 0.001)
+wheelScroll.scrollWheel(with:wheel(30,precise:true))
+assert(abs(wheelScroll.magnification-viewZoom) < 0.001,"Trackpad scrolling should still pan")
+wheelScroll.scrollWheel(with:wheel(30,precise:true,option:true))
+assert(wheelScroll.magnification > viewZoom,"Option-scroll also zooms precise devices")
+wheelCanvas.tool = .crop
+let wheelCropFrame = wheelCanvas.cropFrame!, cropViewZoom = wheelScroll.magnification
+wheelScroll.scrollWheel(with:wheel(3))
+assert(wheelCanvas.cropScale > 1 && wheelCanvas.cropFrame == wheelCropFrame)
+assert(wheelScroll.magnification == cropViewZoom,"Crop wheel must change source scale, not viewport zoom")
+wheelScroll.scrollWheel(with:wheel(1000))
+assert(wheelCanvas.cropScale <= 8)
+for _ in 0..<12 { wheelScroll.scrollWheel(with:wheel(-1000)) }
+assert(wheelCanvas.cropScale >= wheelCanvas.minimumCropScale && wheelCanvas.cropFrame == wheelCropFrame)
+wheelCanvas.cancelCrop()
+assert(!wheelCanvas.hasUnsavedChanges)
+wheelWindow.close()
+print("Mouse wheel checks passed: markup zoom, crop source zoom, fixed frame, scale limits and precise-device panning.")
+
 // Exercise the native close sheet and actual atomic file writes in test fixtures.
 let fixtures = URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent(".build/markup-tests/fixtures")
 try FileManager.default.createDirectory(at:fixtures,withIntermediateDirectories:true)

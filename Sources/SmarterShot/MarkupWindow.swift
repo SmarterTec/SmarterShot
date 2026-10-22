@@ -553,11 +553,12 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         cropOffset.x = max(frame.maxX-imageBounds.width*cropScale,min(frame.minX,cropOffset.x))
         cropOffset.y = max(frame.maxY-imageBounds.height*cropScale,min(frame.minY,cropOffset.y))
     }
-    func setCropScale(_ value: CGFloat) {
+    func setCropScale(_ value: CGFloat, centeredAt point: NSPoint? = nil) {
         guard isCropping, value.isFinite, let frame = cropFrame else { return }
         let next = max(minimumCropScale,min(8,value))
-        let anchor = NSPoint(x:(frame.midX-cropOffset.x)/cropScale,y:(frame.midY-cropOffset.y)/cropScale)
-        cropOffset = NSPoint(x:frame.midX-anchor.x*next,y:frame.midY-anchor.y*next)
+        let center = point.flatMap { frame.contains($0) ? $0 : nil } ?? NSPoint(x:frame.midX,y:frame.midY)
+        let anchor = NSPoint(x:(center.x-cropOffset.x)/cropScale,y:(center.y-cropOffset.y)/cropScale)
+        cropOffset = NSPoint(x:center.x-anchor.x*next,y:center.y-anchor.y*next)
         cropScale = next; clampCropOffset(); cropChanged = true; notifyChange()
     }
     func applyCrop(updateTool: Bool = true) {
@@ -1076,8 +1077,29 @@ final class MarkupClipView: NSClipView {
     }
 }
 
-/// Route crop pinches to the image transform instead of magnifying the viewport.
+/// Wheel zooms the image; trackpad scrolling still pans and pinching still zooms.
+/// Crop zoom transforms the source behind its fixed frame, not the viewport.
 final class MarkupScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        // Precise scrolling is used by trackpads/Magic Mouse. Option-scroll also
+        // provides zoom for those devices without taking away two-finger panning.
+        guard !event.hasPreciseScrollingDeltas || event.modifierFlags.contains(.option) else {
+            super.scrollWheel(with:event); return
+        }
+        let delta = event.scrollingDeltaY
+        guard delta.isFinite, delta != 0, abs(delta) >= abs(event.scrollingDeltaX),
+              let canvas = documentView as? MarkupCanvas else {
+            super.scrollWheel(with:event); return
+        }
+        let sensitivity: CGFloat = event.hasPreciseScrollingDeltas ? 0.01 : 0.08
+        let factor = exp(max(-0.7,min(0.7,delta * sensitivity)))
+        if canvas.isCropping {
+            canvas.setCropScale(canvas.cropScale * factor, centeredAt:canvas.convert(event.locationInWindow,from:nil))
+        } else {
+            let next = max(minMagnification,min(maxMagnification,magnification * factor))
+            setMagnification(next,centeredAt:contentView.convert(event.locationInWindow,from:nil))
+        }
+    }
     override func magnify(with event:NSEvent) {
         if let canvas = documentView as? MarkupCanvas,canvas.isCropping { canvas.magnify(with:event) }
         else { super.magnify(with:event) }

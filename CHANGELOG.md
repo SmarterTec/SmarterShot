@@ -6,6 +6,8 @@ All notable changes to SmarterShot. This project follows
 ## [Unreleased]
 
 ### Changed
+- Mouse-wheel zoom in markup and crop mode. Crop zoom keeps the frame fixed;
+  trackpad scrolling still pans, with Option-scroll available for zoom.
 - Ground AI descriptions in locally recognized interface text, including selected
   object labels, to improve ambiguous subject identification. No cloud processing.
 - AI filename suggestions retain the capture timestamp and include the application

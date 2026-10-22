@@ -25,13 +25,14 @@ Built with Swift + AppKit. The whole app is a ~200 KB bundle using ~40 MB RAM.
   box to move several points together. Pause at the end of a sketch while
   keeping the pointer down to recognize a clean shape. Arrowheads follow the final segment.
 - **Crop adjustment** — drag the image behind the frame, zoom the image with
-  pinching or the crop slider, or resize the crop with its eight frame handles. Apply
+  the mouse wheel, pinching or the crop slider, or resize the crop with its eight frame handles. Apply
   animates into the result; Cancel discards the draft. Export preserves source
   pixel resolution for the chosen region.
 - **Save protection** — closing an edited screenshot or quitting the app offers
   Save a Copy, Replace Original, Discard Changes, and Keep Editing. Copies are
   separate PNGs beside the original; replacing preserves PNG/JPEG/TIFF formats.
-  Includes undo/redo, pinch-to-zoom, and Copy. Video thumbnails do not offer markup.
+  Includes undo/redo, mouse-wheel and pinch-to-zoom, and Copy.
+  Trackpad scrolling pans; Option-scroll also zooms on precise scrolling devices. Video thumbnails do not offer markup.
 - **Inline discard** — tap the ✕ to reveal a red trash; tap ✕ again to keep, or
   the trash to delete the file.
 - **Customizable in Settings** — set each shortcut, the save folder, the capture
