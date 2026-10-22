@@ -44,8 +44,22 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
 
-        let root = NSView()
-        window.contentView = root
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = true
+        let root = NSView(frame:NSRect(origin:.zero,size:window.contentLayoutRect.size))
+        root.autoresizingMask = [.width,.height]
+        if #available(macOS 26.0,*) {
+            let glass = NSGlassEffectView(frame:root.frame)
+            glass.style = .regular; glass.cornerRadius = 0
+            glass.contentView = root
+            window.contentView = glass
+        } else {
+            let material = NSVisualEffectView(frame:root.frame)
+            material.material = .underWindowBackground
+            material.blendingMode = .behindWindow; material.state = .active
+            material.addSubview(root); window.contentView = material
+        }
         scroll.contentView = MarkupClipView()
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
@@ -53,7 +67,8 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
         scroll.minMagnification = 0.05
         scroll.maxMagnification = 8
         scroll.documentView = canvas
-        scroll.backgroundColor = .underPageBackgroundColor
+        scroll.drawsBackground = false
+        scroll.contentView.drawsBackground = false
         scroll.borderType = .noBorder
         let inspector = NSView()
         let fields = NSStackView()
@@ -176,7 +191,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
         fill.state = canvas.selectedFillColor == nil ? .off : .on
         fillColor.isEnabled = canvas.canFill
         fillColor.color = canvas.selectedFillColor ?? canvas.fillInk
-        textSection.isHidden = !(canvas.isTextSelected || canvas.tool == .text)
+        textSection.isHidden = !(canvas.isTextSelected || [MarkupCanvas.Tool.text,.note].contains(canvas.tool))
         cropSection.isHidden = !canvas.isCropping
         cropZoom.minValue = Double(canvas.minimumCropScale)
         cropZoom.doubleValue = Double(canvas.cropScale)
@@ -199,7 +214,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
         let item = NSToolbarItem(itemIdentifier:id)
         if let index = MarkupCanvas.Tool.allCases.firstIndex(where:{id.rawValue == "tool.\($0.rawValue)"}) {
             let tool = MarkupCanvas.Tool.allCases[index]
-            let symbols = ["cursorarrow","pencil.tip","point.topleft.down.to.point.bottomright.curvepath","line.diagonal","arrow.up.right","rectangle","oval","textformat","highlighter","crop"]
+            let symbols = ["cursorarrow","pencil.tip","point.topleft.down.to.point.bottomright.curvepath","line.diagonal","arrow.up.right","rectangle","oval","textformat","note.text","highlighter","crop"]
             let b = NSButton(image:NSImage(systemSymbolName:symbols[index],accessibilityDescription:tool.rawValue) ?? NSImage(),target:self,action:#selector(selectTool(_:)))
             b.title = ""; b.imagePosition = .imageOnly
             b.tag = index; b.setButtonType(.pushOnPushOff); styleGlassButton(b)
@@ -349,7 +364,7 @@ final class MarkupWindow: NSWindowController, NSWindowDelegate, NSToolbarDelegat
 }
 
 final class MarkupCanvas: NSView, NSTextFieldDelegate {
-    enum Tool: String, CaseIterable { case select = "Select", sketch = "Sketch", curve = "Curve", line = "Line", arrow = "Arrow", rectangle = "Box", ellipse = "Oval", text = "Text", highlight = "Highlight", crop = "Crop" }
+    enum Tool: String, CaseIterable { case select = "Select", sketch = "Sketch", curve = "Curve", line = "Line", arrow = "Arrow", rectangle = "Box", ellipse = "Oval", text = "Text", note = "Sticky Note", highlight = "Highlight", crop = "Crop" }
     struct Mark: Equatable {
         var tool: Tool
         var points: [NSPoint]
@@ -375,7 +390,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     var onSaveRequested: (() -> Void)?
     private var savedMarks: [Mark] = []
     var hasUnsavedChanges: Bool { marks != savedMarks || (isCropping && cropChanged) }
-    var isTextSelected: Bool { selected.map { marks[$0].tool == .text } ?? false }
+    var isTextSelected: Bool { selected.map { [Tool.text,.note].contains(marks[$0].tool) } ?? false }
     func markSaved() { savedMarks = marks; notifyChange() }
     func endTextEditing() { finishTextEditing() }
     private func notifyChange() { needsDisplay = true; onEditingChanged?() }
@@ -385,9 +400,9 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     var fillInk: NSColor = .systemBlue
     private var defaultFill: NSColor?
     private func isClosed(_ mark:Mark) -> Bool {
-        [.rectangle,.ellipse,.highlight].contains(mark.tool) || (mark.points.count > 2 && distance(mark.points[0],mark.points.last!) < 1)
+        [.rectangle,.ellipse,.highlight,.note].contains(mark.tool) || (mark.points.count > 2 && distance(mark.points[0],mark.points.last!) < 1)
     }
-    var canFill: Bool { selected.map { isClosed(marks[$0]) } ?? [.rectangle,.ellipse,.highlight].contains(tool) }
+    var canFill: Bool { selected.map { isClosed(marks[$0]) } ?? [.rectangle,.ellipse,.highlight,.note].contains(tool) }
     var selectedFillColor: NSColor? { selected.map { marks[$0].fillColor } ?? defaultFill }
     func setFill(_ color:NSColor?) {
         defaultFill = color
@@ -411,16 +426,17 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
             ?? NSFont.systemFont(ofSize:mark.fontSize)
     }
     private func textRect(_ mark: Mark) -> NSRect {
+        if mark.tool == .note { return rect(mark) }
         let size = (mark.text as NSString).size(withAttributes:[.font:font(for:mark)])
         return NSRect(origin:mark.points[0],size:NSSize(width:max(12,size.width),height:size.height))
     }
     func setTextFamily(_ family: String) {
         textFamily = family
-        if let i = selected, marks[i].tool == .text { checkpoint(); marks[i].fontFamily = family; refreshTextEditor(); notifyChange() }
+        if let i = selected, [Tool.text,.note].contains(marks[i].tool) { checkpoint(); marks[i].fontFamily = family; refreshTextEditor(); notifyChange() }
     }
     func setTextSize(_ size: CGFloat) {
         textSize = max(6,min(300,size))
-        if let i = selected, marks[i].tool == .text { checkpoint(); marks[i].fontSize = textSize; refreshTextEditor(); notifyChange() }
+        if let i = selected, [Tool.text,.note].contains(marks[i].tool) { checkpoint(); marks[i].fontSize = textSize; refreshTextEditor(); notifyChange() }
     }
     private func beginTextEditing(at i: Int) {
         finishTextEditing()
@@ -431,9 +447,15 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         field.isBordered = false
         field.drawsBackground = true
         field.backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.9)
+        if marks[i].tool == .note {
+            field.drawsBackground = false
+            field.usesSingleLineMode = false
+            field.cell?.wraps = true; field.cell?.isScrollable = false
+            field.lineBreakMode = .byWordWrapping
+        }
         field.delegate = self
         field.focusRingType = .exterior
-        field.setAccessibilityLabel("Edit annotation text")
+        field.setAccessibilityLabel(marks[i].tool == .note ? "Edit sticky note" : "Edit annotation text")
         textEditor = field
         addSubview(field)
         refreshTextEditor()
@@ -443,6 +465,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         guard let i = editingTextIndex, let field = textEditor else { return }
         field.font = font(for:marks[i]); field.textColor = marks[i].color
         let rect = textRect(marks[i])
+        if marks[i].tool == .note { field.frame = rect.insetBy(dx:12,dy:12); return }
         field.frame = NSRect(x:rect.minX,y:rect.minY,width:max(140,rect.width+12),height:rect.height+4)
     }
     private func finishTextEditing() {
@@ -459,6 +482,10 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     }
     func controlTextDidEndEditing(_ notification: Notification) { finishTextEditing() }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if selector == #selector(NSResponder.insertNewline(_:)), let i = editingTextIndex,
+           marks[i].tool == .note, !NSEvent.modifierFlags.contains(.command) {
+            textView.insertText("\n",replacementRange:textView.selectedRange()); return true
+        }
         if selector == #selector(NSResponder.insertNewline(_:)) || selector == #selector(NSResponder.cancelOperation(_:)) {
             finishTextEditing(); window?.makeFirstResponder(self); return true
         }
@@ -470,7 +497,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     private(set) var isEditingPoints = false { didSet { onEditingChanged?(); notifyChange() } }
     var canEditPoints: Bool {
         guard let i = selected else { return false }
-        return ![Tool.text, .crop].contains(marks[i].tool)
+        return ![Tool.text, .note, .crop].contains(marks[i].tool)
     }
     private var selected: Int? { didSet {
         if oldValue != selected { selectedPointIndices.removeAll() }
@@ -729,6 +756,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         p.lineCapStyle = .round
         p.lineJoinStyle = .round
         let points = mark.points
+        if mark.tool == .note { p.appendRoundedRect(rect(mark),xRadius:6,yRadius:6); return p }
         if mark.tool == .crop || ([Tool.rectangle,.highlight].contains(mark.tool) && points.count == 2) { p.appendRect(rect(mark)); return p }
         if mark.tool == .ellipse && points.count == 2 { p.appendOval(in: rect(mark)); return p }
         let closed = isClosed(mark)
@@ -767,10 +795,16 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
             transform.concat()
         }
         image.draw(in: imageBounds)
-        for mark in marks {
+        for (index,mark) in marks.enumerated() {
             if mark.tool == .crop { continue }
             mark.color.setStroke()
-            if mark.tool == .text {
+            if mark.tool == .note {
+                mark.fillColor?.setFill()
+                if mark.fillColor != nil { path(mark).fill() }
+                if exporting || editingTextIndex != index {
+                    (mark.text as NSString).draw(in:rect(mark).insetBy(dx:12,dy:12),withAttributes:[.foregroundColor:mark.color,.font:font(for:mark)])
+                }
+            } else if mark.tool == .text {
                 (mark.text as NSString).draw(at: mark.points[0], withAttributes: [.foregroundColor: mark.color, .font: font(for: mark)])
             } else if mark.tool == .highlight {
                 (mark.fillColor ?? mark.color.withAlphaComponent(0.3)).setFill(); path(mark).fill()
@@ -781,7 +815,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         }
         NSGraphicsContext.restoreGraphicsState()
         if isCropping && !exporting { drawCropFrame(); return }
-        if !exporting, let i = selected, marks[i].tool == .text, editingTextIndex == nil {
+        if !exporting, let i = selected, [Tool.text,.note].contains(marks[i].tool), editingTextIndex == nil {
             let r = textRect(marks[i])
             NSColor.systemBlue.setStroke()
             let border = NSBezierPath(rect:r.insetBy(dx:-3,dy:-3))
@@ -819,7 +853,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         marks.indices.reversed().first { i in
             let m = marks[i]
             if m.tool == .crop { return false }
-            if m.tool == .text { return textRect(m).insetBy(dx:-hitRadius,dy:-hitRadius).contains(point) }
+            if [Tool.text,.note].contains(m.tool) { return textRect(m).insetBy(dx:-hitRadius,dy:-hitRadius).contains(point) }
             if (m.tool == .highlight || m.fillColor != nil) && path(m).contains(point) { return true }
             return path(m).cgPathForHitTesting.copy(strokingWithWidth:max(m.width,hitRadius*2),lineCap:.round,lineJoin:.round,miterLimit:10).contains(point)
         }
@@ -859,7 +893,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         pressedExisting = false; selectionDragged = false; gestureCheckpointed = false
         if tool == .crop && !isCropping { beginCrop() }
         if isCropping { cropMouseDown(point); return }
-        if let i = selected,marks[i].tool == .text {
+        if let i = selected,[Tool.text,.note].contains(marks[i].tool) {
             let r = textRect(marks[i])
             if event.clickCount == 2 && r.contains(point) { checkpoint(); beginTextEditing(at:i); return }
             if distance(point,NSPoint(x:r.maxX,y:r.maxY)) < hitRadius {
@@ -878,6 +912,9 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         }
         if let i = hitMark(point) {
             selected = i; pressedExisting = true
+            if event.clickCount == 2, [Tool.text,.note].contains(marks[i].tool) {
+                checkpoint(); tool = marks[i].tool; beginTextEditing(at:i); return
+            }
             // Keep the active drawing tool during the gesture. A click adopts
             // this object's original tool; a drag moves the selected object.
             if canEditPoints {
@@ -895,8 +932,15 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         selectedPointIndices.removeAll()
         if tool == .select { isEditingPoints = false; notifyChange(); return }
         checkpoint()
-        if tool == .text {
-            var mark = Mark(tool:.text,points:[point],color:ink,width:strokeWidth,text:"Text")
+        if tool == .text || tool == .note {
+            var mark = Mark(tool:tool,points:[point],color:ink,width:strokeWidth,text:"Text")
+            if tool == .note {
+                let size = NSSize(width:min(220,imageBounds.width),height:min(150,imageBounds.height))
+                let origin = NSPoint(x:max(0,min(point.x,imageBounds.width-size.width)),y:max(0,min(point.y,imageBounds.height-size.height)))
+                mark.points = [origin,NSPoint(x:origin.x+size.width,y:origin.y+size.height)]
+                mark.text = "Note"; mark.color = .black
+                mark.fillColor = NSColor(calibratedRed:1,green:0.91,blue:0.49,alpha:1)
+            }
             mark.fontFamily = textFamily; mark.fontSize = textSize
             marks.append(mark); selected = marks.count-1; isEditingPoints = false
             beginTextEditing(at:marks.count-1)
@@ -950,6 +994,8 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
                 marks[i].points[marks[i].points.count-1] = p
                 if tool == .curve { let a=marks[i].points[0]; marks[i].points[1] = NSPoint(x:(a.x+p.x)/2,y:(a.y+p.y)/2) }
             }
+        } else if handle == -1, marks[i].tool == .note {
+            marks[i].points[1] = NSPoint(x:max(marks[i].points[0].x+80,p.x),y:max(marks[i].points[0].y+60,p.y))
         } else if handle == -1 {
             let scale = max((p.x-textResizeRect.minX)/max(1,textResizeRect.width),
                             (p.y-textResizeRect.minY)/max(1,textResizeRect.height))

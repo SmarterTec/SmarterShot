@@ -6,6 +6,9 @@ All notable changes to SmarterShot. This project follows
 ## [Unreleased]
 
 ### Changed
+- Native Liquid Glass editor background, with transparent scroll margins and a
+  system material fallback. Image pixels/exports remain unchanged.
+- Shimmering native Full Page capsule for discovery, respecting Reduce Motion.
 - Automatically apply the AI filename to new saved captures when analysis completes,
   retaining capture timestamp and OS app identity. Preserve existing files with
   collision suffixes; imported review fixtures remain read-only.
@@ -35,6 +38,10 @@ All notable changes to SmarterShot. This project follows
   name when identifiable. Imported images fall back to their file date.
 
 ### Added
+- Settings choice between SmarterShot and Apple Preview for the card's Markup
+  action. Preview receives the saved image and the card retires after handoff.
+- Sticky notes with multiline inline text, movement, bounds resizing, text/fill
+  formatting, undo/redo, and image export.
 - Extension-free Full Page capture from the window picker or Shift-click. Detect
   adjustable Accessibility scrollbars, scroll/stitch locally, show progress and
   Cancel, and restore the original position. Only explicit Full Page requests

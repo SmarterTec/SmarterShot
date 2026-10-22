@@ -407,6 +407,25 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
     @objc private func markupAction() {
         autoDismissTimer?.invalidate()
         PasteWatcher.shared.forget(self)
+        if MarkupEditor.preferred == .preview {
+            guard let preview = MarkupEditor.previewURL else {
+                let alert = NSAlert(); alert.messageText = "Preview isn’t available"
+                alert.informativeText = "Choose SmarterShot as your markup editor in Settings, or restore Apple Preview."
+                alert.runModal(); return
+            }
+            // Freeze the saved path before another app opens it. Successful
+            // handoff retires the card so it cannot copy stale, pre-edit pixels.
+            analysisTask?.cancel(); setLoading(false)
+            filenameLabel.stringValue = shot.url.lastPathComponent
+            let config = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([shot.url],withApplicationAt:preview,configuration:config) { [weak self] _,error in
+                DispatchQueue.main.async {
+                    if let error = error { NSAlert(error:error).runModal() }
+                    else { self?.dismiss() }
+                }
+            }
+            return
+        }
         _ = MarkupWindow(shot: shot) { edited in
             // Replacing a screenshot must retire thumbnails holding its old pixels.
             for overlay in OverlayWindow.stack where overlay.shot.url == edited.url { overlay.dismiss() }

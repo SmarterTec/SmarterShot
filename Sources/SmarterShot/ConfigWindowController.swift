@@ -18,6 +18,7 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
     private var launchCheckbox: NSButton!
     private var savePathField: NSTextField!
     private var organizeCheckbox: NSButton!
+    private var markupPopup: NSPopUpButton!
     private var soundPopup: NSPopUpButton!
     private var recordAudioCheckbox: NSButton!
     private var finished = false
@@ -44,7 +45,7 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
     // MARK: - Building
 
     private func buildWindow() {
-        let width: CGFloat = 500, height: CGFloat = 628
+        let width: CGFloat = 500, height: CGFloat = 688
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
                           styleMask: [.titled, .closable],
                           backing: .buffered, defer: false)
@@ -122,6 +123,22 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
         organizeHelp.frame = NSRect(x:pad+20,y:y-42,width:width-pad*2-20,height:18)
         content.addSubview(organizeHelp)
         y -= 54
+
+        let markupLabel = label("Markup editor",size:13,bold:false)
+        markupLabel.frame = NSRect(x:pad,y:y-24,width:150,height:22)
+        content.addSubview(markupLabel)
+        markupPopup = NSPopUpButton(frame:NSRect(x:fieldX,y:y-26,width:200,height:26))
+        markupPopup.addItems(withTitles:MarkupEditor.allCases.map(\.title))
+        markupPopup.selectItem(at:MarkupEditor.allCases.firstIndex(of:MarkupEditor.preferred) ?? 0)
+        markupPopup.target = self; markupPopup.action = #selector(markupEditorChanged)
+        markupPopup.setAccessibilityLabel("Markup editor")
+        markupPopup.toolTip = "Choose which app opens when you click Markup on a screenshot"
+        content.addSubview(markupPopup)
+        let markupHelp = label("Preview opens the saved image; use its Markup toolbar.",size:11,bold:false)
+        markupHelp.textColor = .secondaryLabelColor
+        markupHelp.frame = NSRect(x:pad,y:y-46,width:width-pad*2,height:18)
+        content.addSubview(markupHelp)
+        y -= 60
 
         // Capture sound row.
         let soundLabel = label("Capture sound", size: 13, bold: false)
@@ -222,6 +239,12 @@ final class ConfigWindowController: NSObject, NSWindowDelegate {
 
     @objc private func toggleOrganizeByApp() {
         ShortcutStore.organizeScreenshotsByApp = organizeCheckbox.state == .on
+    }
+
+    @objc private func markupEditorChanged() {
+        let index = markupPopup.indexOfSelectedItem
+        guard MarkupEditor.allCases.indices.contains(index) else { return }
+        MarkupEditor.preferred = MarkupEditor.allCases[index]
     }
 
     /// Saves the chosen capture sound and plays a preview.

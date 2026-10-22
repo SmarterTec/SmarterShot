@@ -179,10 +179,29 @@ Run `./test-markup.sh` for the standalone AppKit checks covering curve bending,
 additional points, undo/redo, drawing tools, export dimensions, and cropping.
 An existing image can be opened with `SmarterShot --markup /path/to/image.png`.
 
+## Markup editor choice and sticky notes
+
+In **Settings → Markup editor**, choose **SmarterShot** (the default) or **Apple
+Preview**. The screenshot card's Markup button uses this choice immediately.
+Preview opens the saved image in Apple's app; use its Markup toolbar and save
+there. The screenshot card retires after a successful handoff, avoiding stale
+copies of pixels edited externally. Pending AI naming stops before this handoff
+so the path stays stable while Preview opens it.
+
+SmarterShot's editor includes **Sticky Note**: click to place a yellow note and
+edit inline. Return adds a line; click outside to finish. Double-click to edit
+again, drag its background to move, or drag its upper-right handle to resize.
+The Formatting popover controls its text font/size/color and background fill.
+Notes support undo/redo and appear in saved/copied images. The editor window
+uses native Liquid Glass on macOS 26+, with a system material fallback; image
+pixels and exports stay unaffected by the window material.
+
 ## Full Page screenshots (no extensions)
 
 Use **Capture Window**, then choose **Full Page** over the highlighted window,
-or Shift-click it. A normal click still captures the visible window. On macOS
+or Shift-click it. A normal click still captures the visible window.
+The glass Full Page button has a repeating accent shimmer (static with Reduce
+Motion) to make it easier to discover. On macOS
 15.2 or later, SmarterShot detects supported scrollable content using macOS
 Accessibility. If access is missing, only choosing Full Page explains how to
 enable it; regular screenshots and app startup do not request Accessibility.
@@ -207,3 +226,6 @@ Run `./test-scroll.sh` for pixel-level stitching, sticky footers, size/section
 limits, scroll restoration, failed capture and cancellation checks. `./test-selection.sh`
 checks the native Full Page button, Shift-click, Escape, and the unchanged
 recording picker.
+
+For a user-initiated command-line capture, launch SmarterShot with
+`--capture-window` while it is not already running; this opens the same picker.

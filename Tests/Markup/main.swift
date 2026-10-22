@@ -104,7 +104,40 @@ assert(text.selectedPoint(at:0) == NSPoint(x:90,y:80))
 text.setTextFamily("Helvetica"); text.setTextSize(32)
 assert(text.selectedTextFamily == "Helvetica" && text.selectedTextSize == 32)
 print("Inline text passed: persistent tool, selection, movement and formatting.")
+let (note,noteWindow) = fixture()
+note.tool = .note
+note.mouseDown(with:ev(note,.leftMouseDown,NSPoint(x:30,y:40)))
+let noteField = note.subviews.compactMap { $0 as? NSTextField }.first!
+assert(!noteField.usesSingleLineMode && noteField.cell!.wraps)
+noteField.stringValue = "Remember this detail\nSecond line"
+note.controlTextDidChange(Notification(name:NSControl.textDidChangeNotification,object:noteField))
+note.endTextEditing()
+assert(note.tool == .note && note.isTextSelected && !note.canEditPoints && note.canFill)
+let noteBitmap = NSBitmapImageRep(data:note.render()!.tiffRepresentation!)!
+let yellow = noteBitmap.colorAt(x:240,y:125)!.usingColorSpace(.deviceRGB)!
+assert(yellow.redComponent > 0.95 && yellow.blueComponent < 0.7,"Sticky note background must be exported")
+gesture(note,NSPoint(x:32,y:100),NSPoint(x:62,y:120))
+assert(note.selectedPoint(at:0) == NSPoint(x:60,y:60),"Sticky note moves as a single object")
+gesture(note,NSPoint(x:280,y:210),NSPoint(x:350,y:260))
+assert(note.selectedPoint(at:1) == NSPoint(x:350,y:260),"Sticky note resizes using its corner")
+note.setTextFamily("Helvetica");note.setTextSize(18)
+note.setFill(.green)
+let coloredNote = NSBitmapImageRep(data:note.render()!.tiffRepresentation!)!
+let green = coloredNote.colorAt(x:340,y:100)!.usingColorSpace(.deviceRGB)!
+assert(green.greenComponent > 0.8 && green.redComponent < 0.2)
+note.undoEdit();note.redoEdit()
+assert(note.selectedTextSize == 18 || !note.isTextSelected)
+gesture(note,NSPoint(x:70,y:70),NSPoint(x:70,y:70),clicks:2)
+assert(note.subviews.contains { $0 is NSTextField },"Double-click reopens sticky note editing")
+note.endTextEditing();note.deleteSelection()
+assert(!note.isTextSelected)
+print("Sticky notes passed: inline multiline editing, movement, bounds resize, formatting, fill export, undo/redo and delete.")
 let editor = MarkupWindow(shot:CaptureController.Shot(url:URL(fileURLWithPath:"/tmp/markup-toolbar-test.png"),image:source)) { _ in }
+if #available(macOS 26.0,*) {
+    let glass = editor.window!.contentView as! NSGlassEffectView
+    assert(glass.style == .regular && !editor.window!.isOpaque)
+    assert(!editor.canvas.enclosingScrollView!.drawsBackground && !editor.canvas.enclosingScrollView!.contentView.drawsBackground)
+}
 let toolButtons = editor.window!.toolbar!.items.filter { $0.itemIdentifier.rawValue.hasPrefix("tool.") }.compactMap { $0.view as? NSButton }
 for tool in MarkupCanvas.Tool.allCases {
     let button = toolButtons.first { $0.tag == MarkupCanvas.Tool.allCases.firstIndex(of:tool)! }!

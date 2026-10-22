@@ -35,6 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         if CommandLine.arguments.contains("--check-for-updates") {
             DispatchQueue.main.async { [weak self] in self?.appUpdater.check() }
         }
+        // User-initiated command-line entry point uses the same window picker.
+        if CommandLine.arguments.contains("--capture-window") {
+            DispatchQueue.main.async { [weak self] in self?.captureWindow() }
+        }
         // Read-only preview rehearsal using existing files, without new captures
         // or clipboard changes. Keep the normal menu and shortcuts running.
         if let index = CommandLine.arguments.firstIndex(of: "--preview-existing") {

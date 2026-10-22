@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SmarterShotCore
 
 /// A full-screen dimmed overlay for choosing what to record:
@@ -107,16 +108,19 @@ private final class SelectionView: NSView {
     private var availability: [CGWindowID:Bool] = [:]
     private func configureFullPage() {
         guard onFullPage != nil else { return }
-        let button = NSButton(title: "Full Page", target: self, action: #selector(chooseFullPage))
+        let button = FullPageButton(title: "Full Page", target: self, action: #selector(chooseFullPage))
         button.bezelStyle = .rounded
-        if #available(macOS 26.0, *) { button.bezelStyle = .glass }
+        if #available(macOS 26.0, *) { button.bezelStyle = .glass; button.borderShape = .capsule }
+        button.image = NSImage(systemSymbolName:"arrow.down.to.line",accessibilityDescription:nil)
+        button.imagePosition = .imageLeading
+        button.contentTintColor = .controlAccentColor
         button.toolTip = "Scroll and capture the entire page (Shift-click the window). Requires Accessibility access."
         button.setAccessibilityLabel("Capture Full Page")
         addSubview(button); fullPageButton = button; updateFullPagePosition()
     }
     private func updateFullPagePosition() {
         guard let button = fullPageButton else { return }
-        guard let hovered = hoverWindow else { button.isHidden = true; return }
+        guard let hovered = hoverWindow else { button.isHidden = true; (button as? FullPageButton)?.updateAttention(); return }
         if availabilityWindow != hovered.id {
             availabilityWindow = hovered.id
             availabilityTask?.cancel()
@@ -135,8 +139,9 @@ private final class SelectionView: NSView {
         let rect = cgToView(hovered.cgRect)
         button.frame = NSRect(x: max(12, min(bounds.width-132, rect.midX-60)),
             y: max(12, min(bounds.height-48, rect.maxY-52)), width: 120, height: 36)
+        (button as? FullPageButton)?.updateAttention()
     }
-    func cancelDetection() { availabilityTask?.cancel(); availabilityTask = nil }
+    func cancelDetection() { availabilityTask?.cancel(); availabilityTask = nil; (fullPageButton as? FullPageButton)?.stopAttention() }
     @objc private func chooseFullPage() {
         if let hovered = hoverWindow { onFullPage?(hovered.id, hovered.cgRect) }
     }
@@ -247,4 +252,46 @@ private final class SelectionView: NSView {
         let ownNumbers = Set(NSApp.windows.map { Int($0.windowNumber) })
         return WindowPicker.windowUnder(point: point, in: list, ownWindowNumbers: ownNumbers)
     }
+}
+
+/// An accent outline and glint guide discovery without replacing the native
+/// glass button. The system keeps its normal hover/press feedback.
+private final class FullPageButton:NSButton {
+    private let shimmer = CAGradientLayer()
+    private let outline = CAShapeLayer()
+    private var accessibilityObserver:NSObjectProtocol?
+    override init(frame:NSRect) { super.init(frame:frame); configureAttention() }
+    required init?(coder:NSCoder) { super.init(coder:coder); configureAttention() }
+    private func configureAttention() {
+        wantsLayer = true
+        shimmer.startPoint = CGPoint(x:0,y:0.5); shimmer.endPoint = CGPoint(x:1,y:0.5)
+        shimmer.colors = [NSColor.clear.cgColor,NSColor.controlAccentColor.withAlphaComponent(0.95).cgColor,NSColor.clear.cgColor]
+        shimmer.locations = [-1,-0.5,0]
+        outline.fillColor = NSColor.clear.cgColor; outline.strokeColor = NSColor.white.cgColor; outline.lineWidth = 2
+        shimmer.mask = outline; layer?.addSublayer(shimmer)
+        accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(forName:NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,object:nil,queue:.main) { [weak self] _ in self?.updateAttention() }
+    }
+    deinit { if let observer = accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(observer) } }
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        shimmer.frame = bounds; outline.frame = bounds
+        outline.path = CGPath(roundedRect:bounds.insetBy(dx:1,dy:1),cornerWidth:bounds.height/2,cornerHeight:bounds.height/2,transform:nil)
+        CATransaction.commit()
+    }
+    func updateAttention() {
+        guard !isHidden,isEnabled else { stopAttention(); return }
+        shimmer.isHidden = false
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            shimmer.removeAllAnimations(); shimmer.locations = [0,0.5,1]; return
+        }
+        guard shimmer.animation(forKey:"discovery") == nil else { return }
+        let animation = CAKeyframeAnimation(keyPath:"locations")
+        animation.values = [[-1,-0.5,0],[1,1.5,2],[1,1.5,2]]
+        animation.keyTimes = [0,0.65,1]; animation.duration = 3.2
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name:.easeInEaseOut)
+        shimmer.add(animation,forKey:"discovery")
+    }
+    func stopAttention() { shimmer.removeAllAnimations(); shimmer.isHidden = true }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SmarterShotCore
 
 // Isolate native event routing from external apps and privacy permissions.
@@ -26,7 +27,11 @@ SelectionOverlay.present(mode:.window,fullPage:{id,_ in assert(id == 321);full +
 settle()
 let button=picker().contentView!.subviews.compactMap { $0 as? NSButton }.first!
 assert(button.isEnabled && !button.isHidden && button.toolTip!.contains("Accessibility"))
+let shimmer = button.layer!.sublayers!.compactMap { $0 as? CAGradientLayer }.first!
+assert(!shimmer.isHidden)
+assert(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || shimmer.animation(forKey:"discovery") != nil,"Full Page discovery shimmer must run unless Reduce Motion is enabled")
 button.performClick(nil);settle(0.2)
+assert(shimmer.animation(forKey:"discovery") == nil,"Discovery animation stops when picker closes")
 assert(full == 1 && completed == 1,"Full Page button must not also perform visible-window capture")
 SelectionOverlay.present(mode:.window,fullPage:{_,_ in full += 1}) { _ in completed += 1 }
 settle()
