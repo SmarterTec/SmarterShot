@@ -6,6 +6,9 @@ let package = Package(
     platforms: [
         .macOS(.v13)
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")
+    ],
     targets: [
         // Pure, headless-testable logic (no AppKit): geometry, window picking,
         // sound-flag rules.
@@ -16,8 +19,9 @@ let package = Package(
         // The macOS app itself (AppKit UI).
         .executableTarget(
             name: "SmarterShot",
-            dependencies: ["SmarterShotCore"],
-            path: "Sources/SmarterShot"
+            dependencies: ["SmarterShotCore", .product(name: "Sparkle", package: "Sparkle")],
+            path: "Sources/SmarterShot",
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         // Test harness. Built as a plain executable (not .testTarget) so it runs
         // with just the Command Line Tools — no full Xcode / XCTest needed.

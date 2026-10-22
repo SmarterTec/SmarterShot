@@ -5,6 +5,19 @@ All notable changes to SmarterShot. This project follows
 
 ## [Unreleased]
 
+### Added
+- Check for Updates from the menu bar, with signed downloads and in-app installation
+  from GitHub Releases. Optional daily checks; installation stays under your control.
+- Native Markup editor with shapes, curves, text formatting, closed-shape fills,
+  direct point editing, Shift multi-point selection, and draw-and-hold recognition.
+- Adjustable crop with image pan, pinch zoom, frame resizing, and animated results.
+- Save protection when closing edited screenshots or quitting: replace, copy,
+  discard, or keep editing.
+
+### Fixed
+- Keep the app's code-signing identity stable across updates to preserve privacy access.
+- Avoid repeated app-generated permission prompts on startup and fix the Crop crash.
+
 ## [1.3.1] - 2026-07-08
 ### Added
 - The **Record system audio** setting is now also in the Settings window (under

@@ -29,6 +29,18 @@ mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/SmarterShot"
 
+# Preserve framework symlinks. Non-sandboxed apps do not need Sparkle's XPC
+# services; the framework's installer and relaunch helper remain embedded.
+SPARKLE_SRC="$ROOT/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+mkdir -p "$APP/Contents/Frameworks"
+ditto "$SPARKLE_SRC" "$SPARKLE"
+rm -rf "$SPARKLE/Versions/B/XPCServices" "$SPARKLE/XPCServices"
+for helper in "$SPARKLE/Versions/B/Autoupdate" "$SPARKLE/Versions/B/Updater.app"; do
+    codesign --force --sign "$SIGN_ID" --keychain "$SIGN_KC" --options runtime "$helper"
+done
+codesign --force --sign "$SIGN_ID" --keychain "$SIGN_KC" "$SPARKLE"
+
 # App icon. Override which variant is used with SMARTERSHOT_ICON=dark.
 ICON_VARIANT="${SMARTERSHOT_ICON:-light}"
 ICON_SRC="$ROOT/icon/SmarterShot.icns"
@@ -58,6 +70,14 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>       <string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0.0</string>
     <key>CFBundleVersion</key>           <string>1</string>
+    <key>SUFeedURL</key><string>https://github.com/SmarterTec/SmarterShot/releases/latest/download/appcast.xml</string>
+    <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUAutomaticallyUpdate</key><false/>
+    <key>SUAllowsAutomaticUpdates</key><false/>
+    <key>SUEnableSystemProfiling</key><false/>
+    <key>SUVerifyUpdateBeforeExtraction</key><true/>
+    <key>SURequireSignedFeed</key><true/>
+    <key>SUSignedFeedFailureExpirationInterval</key><integer>0</integer>
     <key>LSMinimumSystemVersion</key>    <string>13.0</string>
     <key>LSUIElement</key>               <true/>
     <key>NSHighResolutionCapable</key>   <true/>
@@ -70,9 +90,12 @@ PLIST
 # the commit count — so every commit bumps the build automatically.
 VERSION="$(git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')"
 [ -z "$VERSION" ] && VERSION="1.0.0"
-BUILD="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)"
+VERSION="${SMARTERSHOT_VERSION:-$VERSION}"
+BUILD="${SMARTERSHOT_BUILD:-$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $(cat "$ROOT/update-public-key.txt")" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :SmarterShotSourceRevision string $(git -C "$ROOT" rev-parse HEAD)" "$APP/Contents/Info.plist"
 echo "Version $VERSION (build $BUILD)."
 
 # A fixed certificate and designated requirement let macOS recognize updates

@@ -2,9 +2,12 @@ import AppKit
 import CoreGraphics
 import SmarterShotCore
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
     static let githubURL = URL(string: "https://github.com/SmarterTec/SmarterShot")!
 
+    @MainActor private lazy var appUpdater = AppUpdater()
+    private var checkUpdatesItem: NSMenuItem!
+    private var automaticUpdatesItem: NSMenuItem!
     private var statusItem: NSStatusItem!
     private var areaHotKey: HotKey?
     private var windowHotKey: HotKey?
@@ -26,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         CaptureController.log("LAUNCH ScreenCapture preflight=\(hasCapture)")
 
         setupStatusItem()
+        appUpdater.start()
         rebind(warnOnFailure: false)
 
         if !ShortcutStore.hasCompletedOnboarding {
@@ -77,6 +81,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
         menu.addItem(withTitle: "Open Screenshots Folder", action: #selector(openFolder), keyEquivalent: "")
+        menu.addItem(.separator())
+        checkUpdatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
+        menu.addItem(checkUpdatesItem)
+        automaticUpdatesItem = NSMenuItem(title: "Automatically Check for Updates", action: #selector(toggleUpdateChecks), keyEquivalent: "")
+        menu.addItem(automaticUpdatesItem)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Help / View on GitHub", action: #selector(openGitHub), keyEquivalent: "")
         menu.addItem(withTitle: "Quit SmarterShot", action: #selector(quit), keyEquivalent: "q")
@@ -203,7 +212,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // checkmark reflects changes made in the Settings window (and vice versa).
     func menuNeedsUpdate(_ menu: NSMenu) {
         recordAudioMenuItem.state = ShortcutStore.recordAudio ? .on : .off
+        automaticUpdatesItem.state = appUpdater.automaticallyChecks ? .on : .off
+        checkUpdatesItem.isEnabled = appUpdater.canCheck
     }
+
+    @MainActor func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        menuItem === checkUpdatesItem ? appUpdater.canCheck : true
+    }
+
+    @MainActor @objc private func checkForUpdates() { appUpdater.check() }
+    @MainActor @objc private func toggleUpdateChecks() { appUpdater.toggleAutomaticChecks() }
 
     private func beginRecording(mode: SelectionOverlay.Mode) {
         // If already recording, the hotkey/menu acts as a stop toggle.

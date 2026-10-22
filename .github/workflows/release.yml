@@ -1,7 +1,5 @@
-name: Release
+name: Prepare release
 
-# Push a tag like v1.1.0 to build the app and publish a GitHub Release
-# with auto-generated notes (the changelog of commits since the last tag).
 on:
   push:
     tags:
@@ -11,26 +9,21 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  prepare:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # full history so the build derives the version/build number
-
-      - name: Build app bundle
-        run: ./make-app.sh
-
-      - name: Zip the app
-        run: |
-          cd dist
-          zip -r -y "../SmarterShot-${GITHUB_REF_NAME}.zip" SmarterShot.app
-
-      - name: Publish GitHub Release
+          fetch-depth: 0
+      - name: Check core behavior
+        run: ./test.sh
+      # The permanent app certificate and Sparkle private key stay in the
+      # maintainer's login Keychain. Publish signed assets with publish-update.sh.
+      - name: Prepare draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            "SmarterShot-${GITHUB_REF_NAME}.zip" \
-            --title "SmarterShot ${GITHUB_REF_NAME}" \
-            --generate-notes
+          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release create "${GITHUB_REF_NAME}" --verify-tag --draft \
+              --title "SmarterShot ${GITHUB_REF_NAME}" --generate-notes
+          fi

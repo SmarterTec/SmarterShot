@@ -1,7 +1,6 @@
 #!/bin/bash
 # Cuts a new release: moves the CHANGELOG [Unreleased] notes under the new
-# version, commits, tags vX.Y.Z, and (if you push the tag) the GitHub Action
-# builds the app and publishes a Release.
+# version, commits, and tags vX.Y.Z. Build/sign locally before publishing.
 #
 # Usage:  ./release.sh 1.1.0
 set -euo pipefail
@@ -36,5 +35,9 @@ git -C "$ROOT" commit -m "Release $TAG" >/dev/null
 git -C "$ROOT" tag -a "$TAG" -m "SmarterShot $TAG"
 
 echo "Committed and tagged $TAG."
-echo "To publish (builds + creates the GitHub Release):"
-echo "    git push origin main $TAG"
+echo "Next, prepare and verify the signed update locally:"
+echo "    ./package-update.sh $VERSION"
+echo "    ./test-updates.sh dist/update-$TAG"
+echo "After reviewing the release, push the source/tag and publish signed assets:"
+echo "    git push origin HEAD $TAG"
+echo "    ./publish-update.sh $VERSION"

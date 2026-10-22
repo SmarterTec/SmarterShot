@@ -93,6 +93,37 @@ they will fail instead of shipping an ad-hoc-signed release when it is absent.
 Run `./test-signing.sh` after a successful build to check that invalid signing
 configuration fails without replacing the last signed bundle.
 
+## In-app updates
+
+Use **Check for Updates…** from SmarterShot's menu-bar menu. The native updater
+shows published GitHub releases, downloads a signed app, then offers installation
+and restart. It checks daily by default; **Automatically Check for Updates**
+toggles background checks. Installing always requires a choice from you.
+Unpublished commits and prereleases are not installed.
+
+Updates and their feed are signed with a separate Ed25519 key. The private key
+stays in the login Keychain under Sparkle's **Private key for signing Sparkle
+updates** item, account `app.smartershot.SmarterShot`. Only its public key is in
+`update-public-key.txt`. Keep both this key and the app's original code-signing
+identity for future releases; neither private key belongs in GitHub or CI.
+
+To publish from this Mac after committing the finished source:
+
+```sh
+./release.sh 1.4.0                   # changelog commit and local tag
+./package-update.sh 1.4.0            # signed app ZIP + signed appcast.xml
+./test-updates.sh dist/update-v1.4.0 # signature, version, and tamper checks
+git push origin HEAD v1.4.0          # reviewed source and tag
+./publish-update.sh 1.4.0           # uploads assets and publishes release
+```
+
+Use a new version for every release. Build numbers come from full git history;
+keep that history intact, and do not force-rewrite published release tags.
+The tag workflow only prepares a draft: signing and publishing happen locally
+so release keys never need to leave this Mac. The updater reads
+`https://github.com/SmarterTec/SmarterShot/releases/latest/download/appcast.xml`.
+The first updater-enabled release must be installed manually once.
+
 ## Roadmap ideas
 OCR (text from a selection via the Vision framework), a lightweight annotation
 editor improvements, scrolling capture, and a settings UI for the hotkeys and save folder.
