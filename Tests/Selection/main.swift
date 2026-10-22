@@ -5,7 +5,6 @@ import SmarterShotCore
 // Isolate native event routing from external apps and privacy permissions.
 enum CaptureController { static func log(_ text:String) {} }
 enum ScrollCapture { @MainActor static func supports(windowID:CGWindowID,frame:CGRect) async -> Bool { true } }
-enum ChromePageCapture { static func isChrome(windowID:CGWindowID)->Bool { false } }
 enum WindowPicker {
     static var lastPoint:CGPoint?
     static func windowUnder(point:CGPoint,in:[[String:Any]],ownWindowNumbers:Set<Int>) -> (id:CGWindowID,cgRect:CGRect)? {
@@ -32,7 +31,7 @@ assert(WindowPicker.lastPoint == ScreenGeometry.cgPoint(fromAppKit:eventScreenPo
 assert(completed == 1)
 SelectionOverlay.present(mode:.window,fullPage:{id,_ in assert(id == 321);full += 1}) { _ in completed += 1 }
 settle()
-let button=picker().contentView!.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Full Page" }!
+let button=picker().contentView!.subviews.compactMap { $0 as? NSButton }.first!
 assert(button.isEnabled && !button.isHidden && button.toolTip!.contains("Accessibility"))
 let shimmer = button.layer!.sublayers!.compactMap { $0 as? CAGradientLayer }.first!
 assert(!shimmer.isHidden)

@@ -46,8 +46,6 @@ enum CaptureController {
         // app after Apple's interactive capture tool has finished.
         SelectionOverlay.present(mode:.window, fullPage: { id, frame in
             MainActor.assumeIsolated { ScrollCapture.start(windowID:id,frame:frame,completion:completion) }
-        }, chromePage: { id, frame in
-            MainActor.assumeIsolated { ChromePageCapture.start(windowID:id,frame:frame,completion:completion) }
         }) { target in
             guard case .window(let id,_) = target else { completion(nil); return }
             let name = CaptureSourceContext.applicationName(windowID:id) ?? ""

@@ -12,9 +12,9 @@ final class SelectionOverlay: NSObject {
 
     private static var current: SelectionOverlay?
 
-    static func present(mode: Mode, fullPage: ((CGWindowID, CGRect) -> Void)? = nil, chromePage: ((CGWindowID, CGRect) -> Void)? = nil, completion: @escaping (RecordingTarget?) -> Void) {
+    static func present(mode: Mode, fullPage: ((CGWindowID, CGRect) -> Void)? = nil, completion: @escaping (RecordingTarget?) -> Void) {
         current?.finish(nil)
-        let overlay = SelectionOverlay(mode: mode, fullPage: fullPage, chromePage: chromePage, completion: completion)
+        let overlay = SelectionOverlay(mode: mode, fullPage: fullPage, completion: completion)
         current = overlay
         overlay.show()
     }
@@ -25,12 +25,10 @@ final class SelectionOverlay: NSObject {
     private var view: SelectionView!
     private var keyMonitor: Any?
     private var finished = false
-    private let chromePage: ((CGWindowID, CGRect) -> Void)?
     private let fullPage: ((CGWindowID, CGRect) -> Void)?
 
-    private init(mode: Mode, fullPage: ((CGWindowID, CGRect) -> Void)?, chromePage: ((CGWindowID, CGRect) -> Void)?, completion: @escaping (RecordingTarget?) -> Void) {
+    private init(mode: Mode, fullPage: ((CGWindowID, CGRect) -> Void)?, completion: @escaping (RecordingTarget?) -> Void) {
         self.mode = mode
-        self.chromePage = chromePage
         self.fullPage = fullPage
         self.completion = completion
         super.init()
@@ -69,13 +67,6 @@ final class SelectionOverlay: NSObject {
                 DispatchQueue.main.asyncAfter(deadline: .now()+0.15) { self.fullPage?(id, rect) }
             }
         }
-        if chromePage != nil {
-            view.onChromePage = { [weak self] id, rect in
-                guard let self = self, !self.finished else { return }
-                self.finish(nil, notify: false)
-                DispatchQueue.main.asyncAfter(deadline: .now()+0.15) { self.chromePage?(id, rect) }
-            }
-        }
         window.contentView = view
     }
 
@@ -112,32 +103,25 @@ private final class SelectionView: NSView {
     var unionOrigin: NSPoint = .zero
     var onFinish: ((RecordingTarget?) -> Void)?
     var onFullPage: ((CGWindowID, CGRect) -> Void)? { didSet { configureFullPage() } }
-    var onChromePage: ((CGWindowID, CGRect) -> Void)?
-    private var scrollButton:NSButton?
     private var fullPageButton: NSButton?
     private var availabilityTask: Task<Void,Never>?
     private var availabilityWindow: CGWindowID?
     private var availability: [CGWindowID:Bool] = [:]
     private func configureFullPage() {
         guard onFullPage != nil else { return }
-        let button = FullPageButton(title: "Full Page", target: self, action: #selector(chooseFullPage))
+        let button = FullPageButton(title: "Scroll Capture", target: self, action: #selector(chooseFullPage))
         button.bezelStyle = .rounded
         if #available(macOS 26.0, *) { button.bezelStyle = .glass; button.borderShape = .capsule }
         button.image = NSImage(systemSymbolName:"arrow.down.to.line",accessibilityDescription:nil)
         button.imagePosition = .imageLeading
         button.contentTintColor = .controlAccentColor
         button.toolTip = "Scroll and capture the entire page (Shift-click the window). Requires Accessibility access."
-        button.setAccessibilityLabel("Capture Full Page")
-        let scroll=NSButton(title:"Scroll Capture",target:self,action:#selector(chooseScroll))
-        scroll.bezelStyle = .rounded
-        if #available(macOS 26.0,*) { scroll.bezelStyle = .glass;scroll.borderShape = .capsule }
-        scroll.toolTip="Capture by scrolling and restore the page position."
-        addSubview(scroll);scrollButton=scroll
+        button.setAccessibilityLabel("Scroll Capture")
         addSubview(button); fullPageButton = button; updateFullPagePosition()
     }
     private func updateFullPagePosition() {
         guard let button = fullPageButton else { return }
-        guard let hovered = hoverWindow else { scrollButton?.isHidden=true;button.isHidden = true; (button as? FullPageButton)?.updateAttention(); return }
+        guard let hovered = hoverWindow else { button.isHidden = true; (button as? FullPageButton)?.updateAttention(); return }
         if availabilityWindow != hovered.id {
             availabilityWindow = hovered.id
             availabilityTask?.cancel()
@@ -155,32 +139,18 @@ private final class SelectionView: NSView {
         button.isEnabled = true
         button.isHidden = false
         if availability[hovered.id] == false {
-            button.toolTip = "Try Full Page — no scrollable area was detected automatically. Click to check this window again."
+            button.toolTip = "Try Scroll Capture — no scrollable area was detected automatically. Click to check this window again."
         } else {
             button.toolTip = "Scroll and capture the entire page (Shift-click the window). Requires Accessibility access."
         }
         let rect = cgToView(hovered.cgRect)
-        button.frame = NSRect(x: max(12, min(bounds.width-132, rect.midX-60)),
-            y: max(12, min(bounds.height-48, rect.maxY-52)), width: 120, height: 36)
-        let chrome=onChromePage != nil && ChromePageCapture.isChrome(windowID:hovered.id)
-        scrollButton?.isHidden = !chrome
-        if chrome {
-            button.frame.origin.x=max(12,min(bounds.width-268,rect.midX-124))
-        }
-        scrollButton?.frame=button.frame.offsetBy(dx:128,dy:0)
-        if chrome { button.toolTip="Capture Chrome’s full rendered page without scrolling. Developer Tools may briefly open. Experimental; English Chrome only." }
+        button.frame = NSRect(x: max(12, min(bounds.width-152, rect.midX-70)),
+            y: max(12, min(bounds.height-48, rect.maxY-52)), width: 140, height: 36)
         (button as? FullPageButton)?.updateAttention()
     }
     func cancelDetection() { availabilityTask?.cancel(); availabilityTask = nil; (fullPageButton as? FullPageButton)?.stopAttention() }
     @objc private func chooseFullPage() {
-        if let hovered = hoverWindow {
-            if onChromePage != nil && ChromePageCapture.isChrome(windowID:hovered.id) { onChromePage?(hovered.id,hovered.cgRect) }
-            else { onFullPage?(hovered.id, hovered.cgRect) }
-        }
-    }
-
-    @objc private func chooseScroll() {
-        if let hovered=hoverWindow { onFullPage?(hovered.id,hovered.cgRect) }
+        if let hovered = hoverWindow { onFullPage?(hovered.id, hovered.cgRect) }
     }
 
     private var dragStart: NSPoint?     // global (AppKit)
@@ -266,10 +236,7 @@ private final class SelectionView: NSView {
             // Look up the window under the cursor fresh at click time.
             if let hw = windowUnderCursor(event) ?? hoverWindow {
                 CaptureController.log("WINDOW PICK id=\(hw.id) rect=\(hw.cgRect)")
-                if event.modifierFlags.contains(.shift), onFullPage != nil {
-                    hoverWindow=hw
-                    if event.modifierFlags.contains(.option) { chooseScroll() } else { chooseFullPage() }
-                }
+                if event.modifierFlags.contains(.shift), onFullPage != nil { onFullPage?(hw.id, hw.cgRect) }
                 else { onFinish?(.window(hw.id, hw.cgRect)) }
             } else {
                 CaptureController.log("WINDOW PICK failed — no window under cursor")
