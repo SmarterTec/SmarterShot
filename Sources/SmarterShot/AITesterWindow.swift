@@ -211,5 +211,7 @@ final class AITesterWindow: NSWindowController, NSWindowDelegate, NSToolbarDeleg
     }
     func controlTextDidChange(_ notification:Notification) { updateControls() }
     func textDidChange(_ notification:Notification) { updateControls() }
-    func windowWillClose(_ notification:Notification) { cancelAnalysis() }
+    func windowWillClose(_ notification:Notification) {
+        if isAnalyzing { cancelAction() } else { cancelAnalysis() }
+    }
 }
