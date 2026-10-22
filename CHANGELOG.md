@@ -43,12 +43,23 @@ All notable changes to SmarterShot. This project follows
 - Sticky notes with multiline inline text, movement, bounds resizing, text/fill
   formatting, undo/redo, and image export.
 - Extension-free Full Page capture from the window picker or Shift-click. Detect
-  adjustable Accessibility scrollbars, scroll/stitch locally, show progress and
+  Accessibility scroll areas, use adjustable scrollbars or targeted browser
+  scrolling, stitch locally, show progress and
   Cancel, and restore the original position. Only explicit Full Page requests
   explain the additional Accessibility access. Unsupported/dynamic content fails
   safely without saving a partial page.
 - Optional “Organize screenshots by app” setting for new captures. Uses the
   source app recorded by macOS; unknown apps go in Other. Off by default.
+
+### Fixed
+- Keep Full Page visible in the window picker when automatic scroll detection
+  fails, and explain unsupported content after an explicit request.
+- Window selection follows the click's event location, including software and
+  accessibility-generated clicks, rather than a stale hardware pointer location.
+- Verify restored content alignment despite minor visual changes, avoiding false
+  scroll-restoration warnings. Progress follows the capture's screen and closes
+  before alerts. Show separate restoring/saving phases and save PNGs off the UI thread.
+- Speed up stable-page capture with shorter adaptive waits and larger overlapping steps.
 
 ### Removed
 - Separate developer AI testing window, its menu command, and its launch flag.

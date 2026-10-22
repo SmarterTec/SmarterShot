@@ -39,6 +39,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
         if CommandLine.arguments.contains("--capture-window") {
             DispatchQueue.main.async { [weak self] in self?.captureWindow() }
         }
+        if let index = CommandLine.arguments.firstIndex(of:"--full-page-window"),
+           CommandLine.arguments.indices.contains(index+1), let id=UInt32(CommandLine.arguments[index+1]) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self=self,self.canCapture(),
+                      let info=(CGWindowListCopyWindowInfo(.optionIncludingWindow,id) as? [[String:Any]])?.first,
+                      let raw=info[kCGWindowBounds as String] as? [String:Any],
+                      let frame=CGRect(dictionaryRepresentation:raw as CFDictionary) else { return }
+                MainActor.assumeIsolated { ScrollCapture.start(windowID:id,frame:frame) { [weak self] shot in self?.present(shot) } }
+            }
+        }
         // Read-only preview rehearsal using existing files, without new captures
         // or clipboard changes. Keep the normal menu and shortcuts running.
         if let index = CommandLine.arguments.firstIndex(of: "--preview-existing") {

@@ -74,6 +74,7 @@ final class SelectionOverlay: NSObject {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(view)
+        view.updateTrackingAreas()
         // Reliable Esc-to-cancel regardless of first-responder state.
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { self?.finish(nil); return nil }
@@ -125,7 +126,6 @@ private final class SelectionView: NSView {
             availabilityWindow = hovered.id
             availabilityTask?.cancel()
             if availability[hovered.id] == nil {
-                button.isEnabled = false
                 availabilityTask = Task { @MainActor [weak self] in
                     let supported = await ScrollCapture.supports(windowID:hovered.id,frame:hovered.cgRect)
                     guard !Task.isCancelled, let self = self else { return }
@@ -134,8 +134,15 @@ private final class SelectionView: NSView {
                 }
             }
         }
-        button.isEnabled = availability[hovered.id] == true
-        button.isHidden = availability[hovered.id] == false
+        // Discovery is best effort. A timeout or a temporarily missing AX node
+        // must not remove the user's way to request a capture explicitly.
+        button.isEnabled = true
+        button.isHidden = false
+        if availability[hovered.id] == false {
+            button.toolTip = "Try Full Page — no scrollable area was detected automatically. Click to check this window again."
+        } else {
+            button.toolTip = "Scroll and capture the entire page (Shift-click the window). Requires Accessibility access."
+        }
         let rect = cgToView(hovered.cgRect)
         button.frame = NSRect(x: max(12, min(bounds.width-132, rect.midX-60)),
             y: max(12, min(bounds.height-48, rect.maxY-52)), width: 120, height: 36)
@@ -213,10 +220,10 @@ private final class SelectionView: NSView {
     }
     override func mouseDragged(with event: NSEvent) {
         if mode == .area { dragCurrent = NSEvent.mouseLocation; needsDisplay = true }
-        else { hoverWindow = windowUnderCursor(); updateFullPagePosition(); needsDisplay = true }
+        else { hoverWindow = windowUnderCursor(event); updateFullPagePosition(); needsDisplay = true }
     }
     override func mouseMoved(with event: NSEvent) {
-        if mode == .window { hoverWindow = windowUnderCursor(); updateFullPagePosition(); needsDisplay = true }
+        if mode == .window { hoverWindow = windowUnderCursor(event); updateFullPagePosition(); needsDisplay = true }
     }
     override func mouseUp(with event: NSEvent) {
         if mode == .area {
@@ -227,7 +234,7 @@ private final class SelectionView: NSView {
             onFinish?(.area(cg))
         } else {
             // Look up the window under the cursor fresh at click time.
-            if let hw = windowUnderCursor() ?? hoverWindow {
+            if let hw = windowUnderCursor(event) ?? hoverWindow {
                 CaptureController.log("WINDOW PICK id=\(hw.id) rect=\(hw.cgRect)")
                 if event.modifierFlags.contains(.shift), onFullPage != nil { onFullPage?(hw.id, hw.cgRect) }
                 else { onFinish?(.window(hw.id, hw.cgRect)) }
@@ -241,8 +248,8 @@ private final class SelectionView: NSView {
         if event.keyCode == 53 { onFinish?(nil) } // Esc
     }
 
-    private func windowUnderCursor() -> (id: CGWindowID, cgRect: CGRect)? {
-        let mouse = NSEvent.mouseLocation
+    private func windowUnderCursor(_ event:NSEvent? = nil) -> (id: CGWindowID, cgRect: CGRect)? {
+        let mouse = event.flatMap { window?.convertPoint(toScreen:$0.locationInWindow) } ?? NSEvent.mouseLocation
         let point = ScreenGeometry.cgPoint(fromAppKit: mouse, primaryHeight: flipH)
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                               kCGNullWindowID) as? [[String: Any]] ?? []

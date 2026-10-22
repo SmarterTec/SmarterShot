@@ -9,8 +9,8 @@ func row(_ y:Int,_ x:Int)->UInt8 {
     var v = UInt64(y*width+x+1);v = (v ^ (v >> 16)) &* 0x45d9f3b;v = (v ^ (v >> 16)) &* 0x45d9f3b
     return UInt8(truncatingIfNeeded:v ^ (v >> 16))
 }
-func image(offset:Int,footer:Int=0)->CGImage {
-    let pixels = (0..<viewHeight).flatMap { y in (0..<width).map { x in y>=viewHeight-footer ? UInt8(33) : row(y+offset,x) } }
+func image(offset:Int,footer:Int=0,topBanner:Bool=false)->CGImage {
+    let pixels = (0..<viewHeight).flatMap { y in (0..<width).map { x in topBanner && y<20 ? UInt8(80) : (y>=viewHeight-footer ? UInt8(33) : row(y+offset,x)) } }
     let provider = CGDataProvider(data:Data(pixels) as CFData)!
     return CGImage(width:width,height:viewHeight,bitsPerComponent:8,bitsPerPixel:8,bytesPerRow:width,space:CGColorSpaceCreateDeviceGray(),bitmapInfo:CGBitmapInfo(rawValue:0),provider:provider,decode:nil,shouldInterpolate:false,intent:.defaultIntent)!
 }
@@ -66,6 +66,35 @@ func image(offset:Int,footer:Int=0)->CGImage {
         } catch { check(restored == 1,"snapshot failures restore original position") }
         let (_, restoreFailed) = try await ScrollCaptureEngine.restoring(restore:{false},operation:{42})
         check(!restoreFailed,"restore failure is reported to caller")
+        var offset=335,restoreWarning=false
+        let relativeResult=try await ScrollCaptureEngine.captureRelative(snapshot:{image(offset:offset)},scroll:{ offset=max(0,min(documentHeight-viewHeight,offset+$0)) },pixelsPerPoint:1,onRestoreFailure:{restoreWarning=true},update:{_ in})
+        check(offset == 335 && !restoreWarning,"relative scrolling restores a nonzero original position")
+        let relativePixels=try ScrollCaptureEngine.plane(relativeResult).pixels
+        check(relativeResult.height == documentHeight && zip(relativePixels,expected).allSatisfy { abs(Int($0)-Int($1))<=2 },"relative scrolling stitches every row exactly")
+        offset=120
+        let relativeFooter=try await ScrollCaptureEngine.captureRelative(snapshot:{image(offset:offset,footer:12)},scroll:{offset=max(0,min(documentHeight-viewHeight,offset+$0))},pixelsPerPoint:1,onRestoreFailure:{restoreWarning=true},update:{_ in})
+        check(relativeFooter.height == documentHeight && offset == 120 && !restoreWarning,"relative sticky footer and restoration")
+        do {
+            _ = try await ScrollCaptureEngine.captureRelative(snapshot:{image(offset:0)},scroll:{_ in},pixelsPerPoint:1,onRestoreFailure:{restoreWarning=true},update:{_ in})
+            check(false,"unscrollable content must not be saved as full page")
+        } catch { check(!restoreWarning,"unscrollable content rejected without disturbing original image") }
+        offset=335
+        var banner=false
+        restoreWarning=false
+        _ = try await ScrollCaptureEngine.captureRelative(snapshot:{image(offset:offset,topBanner:banner)},scroll:{offset=max(0,min(documentHeight-viewHeight,offset+$0));banner=true},pixelsPerPoint:1,onRestoreFailure:{restoreWarning=true},update:{_ in})
+        check(offset == 335 && !restoreWarning,"aligned restoration tolerates changed header pixels without a false warning")
+        var blockedScrolls=0
+        do {
+            _ = try await ScrollCaptureEngine.captureRelative(snapshot:{image(offset:0)},scroll:{_ in blockedScrolls += 1;throw NSError(domain:"Covered window",code:1)},pixelsPerPoint:1,onRestoreFailure:{restoreWarning=true},update:{_ in})
+            check(false,"blocked scroll must throw")
+        } catch { check(blockedScrolls == 1 && !restoreWarning,"a rejected scroll never issues a compensating movement or false restore warning") }
+        offset=335
+        let relativeTask=Task { @MainActor in
+            try await ScrollCaptureEngine.captureRelative(snapshot:{image(offset:offset)},scroll:{offset=max(0,min(documentHeight-viewHeight,offset+$0))},pixelsPerPoint:1,onRestoreFailure:{restoreWarning=true},update:{_ in})
+        }
+        try await Task.sleep(nanoseconds:550_000_000);relativeTask.cancel()
+        do { _ = try await relativeTask.value;check(false,"relative cancellation must throw") }
+        catch is CancellationError { check(offset == 335 && !restoreWarning,"relative cancellation restores even during scroll settlement") }
         restored=0
         let task=Task { @MainActor in
             try await ScrollCaptureEngine.restoring(restore:{restored += 1;return true},operation:{

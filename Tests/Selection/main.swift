@@ -6,13 +6,15 @@ import SmarterShotCore
 enum CaptureController { static func log(_ text:String) {} }
 enum ScrollCapture { @MainActor static func supports(windowID:CGWindowID,frame:CGRect) async -> Bool { true } }
 enum WindowPicker {
+    static var lastPoint:CGPoint?
     static func windowUnder(point:CGPoint,in:[[String:Any]],ownWindowNumbers:Set<Int>) -> (id:CGWindowID,cgRect:CGRect)? {
-        (321,CGRect(x:100,y:100,width:700,height:500))
+        lastPoint=point
+        return (321,CGRect(x:100,y:100,width:700,height:500))
     }
 }
 let app=NSApplication.shared
 app.setActivationPolicy(.prohibited)
-func settle(_ duration:Double=0.05) { RunLoop.main.run(until:Date().addingTimeInterval(duration)) }
+func settle(_ duration:Double=0.2) { RunLoop.main.run(until:Date().addingTimeInterval(duration)) }
 func picker()->NSWindow { app.windows.first { $0.title == "Select Window" && $0.isVisible }! }
 func event(_ type:NSEvent.EventType, flags:NSEvent.ModifierFlags=[])->NSEvent {
     NSEvent.mouseEvent(with:type,location:.zero,modifierFlags:flags,timestamp:0,windowNumber:picker().windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:0)!
@@ -21,7 +23,11 @@ var completed=0, full=0
 SelectionOverlay.present(mode:.window) { target in if case .window(321,_) = target { completed += 1 } }
 settle()
 assert(!picker().contentView!.subviews.contains { $0 is NSButton },"Recording picker must have no full-page action")
-picker().contentView!.mouseUp(with:event(.leftMouseUp))
+let selectedWindow=picker()
+selectedWindow.contentView!.mouseUp(with:event(.leftMouseUp))
+let eventScreenPoint=selectedWindow.convertPoint(toScreen:.zero)
+let primaryHeight=(NSScreen.screens.first { $0.frame.origin == .zero } ?? NSScreen.screens.first)!.frame.height
+assert(WindowPicker.lastPoint == ScreenGeometry.cgPoint(fromAppKit:eventScreenPoint,primaryHeight:primaryHeight),"Window selection must use event location rather than the stored hardware pointer")
 assert(completed == 1)
 SelectionOverlay.present(mode:.window,fullPage:{id,_ in assert(id == 321);full += 1}) { _ in completed += 1 }
 settle()

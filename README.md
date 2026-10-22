@@ -212,10 +212,21 @@ extension, remote debugging, web-page reload, or cloud service is used. The resu
 contains the scrollable content rather than repeated window/browser chrome.
 Progress and Cancel are available, and the original scrollbar position is
 restored after success, cancellation, or failure. A failed restore is reported.
+Progress follows the selected window across Spaces, shows capture/restore/save
+phases, and closes before any warning. PNG encoding runs off the UI thread;
+stable pages use shorter waits and larger overlapping steps. Restoration checks
+content alignment, allowing small visual changes such as hover states, clocks,
+and fading scrollbars.
 The saved image uses the same app folders and on-device AI preview/naming flow.
 
-Apps must expose an adjustable vertical scrollbar through Accessibility. The
-button is hidden for unsupported windows once access is enabled. Dynamic pages,
+Apps must expose their scrollable content through Accessibility. SmarterShot
+uses an adjustable scrollbar where available; for browsers with overlay
+scrollbars, it brings the selected window forward and uses targeted scrolling,
+measures the actual image movement, and visually checks restoration. The fallback
+briefly parks the pointer over the selected content and restores it afterward;
+keep that window visible and avoid other input until capture finishes. The button
+stays visible on highlighted windows even if automatic detection fails; clicking
+it checks again and explains any unsupported content. Dynamic pages,
 infinite feeds, protected content and ambiguous/repeated overlaps may not work;
 SmarterShot reports failure rather than saving an incomplete full-page image.
 Capture is limited to 100 sections, one minute, and 40 million output pixels.
@@ -229,3 +240,5 @@ recording picker.
 
 For a user-initiated command-line capture, launch SmarterShot with
 `--capture-window` while it is not already running; this opens the same picker.
+`--full-page-window <window-id>` captures a known window through the same Full
+Page pipeline without a picker (and can request Accessibility setup).
