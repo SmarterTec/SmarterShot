@@ -21,6 +21,7 @@ import SmarterShotCore
         return await Task.detached { (try? AXScrollTarget.find(windowID:windowID,windowFrame:frame)) != nil }.value
     }
     static func start(windowID:CGWindowID,frame:CGRect,completion:@escaping(CaptureController.Shot?)->Void) {
+        guard !ChromePageCapture.isRunning else { completion(nil);return }
         guard task == nil else { progress?.showWindow(nil); return }
         guard #available(macOS 15.2,*) else { showError("Full Page capture needs macOS 15.2 or later.");completion(nil);return }
         guard AXIsProcessTrusted() else {

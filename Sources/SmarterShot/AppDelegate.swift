@@ -69,9 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     func applicationShouldTerminate(_ sender:NSApplication) -> NSApplication.TerminateReply {
-        if ScrollCapture.isRunning {
+        if ScrollCapture.isRunning || ChromePageCapture.isRunning {
             Task { @MainActor in
                 await ScrollCapture.cancelAndWait()
+                await ChromePageCapture.cancelAndWait()
                 MarkupWindow.reviewBeforeQuitting { accepted in sender.reply(toApplicationShouldTerminate:accepted) }
             }
             return .terminateLater
@@ -231,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     }
 
     private func canCapture() -> Bool {
-        guard MainActor.assumeIsolated({ !ScrollCapture.isRunning }) else { return false }
+        guard MainActor.assumeIsolated({ !ScrollCapture.isRunning && !ChromePageCapture.isRunning }) else { return false }
         return CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess()
     }
 
