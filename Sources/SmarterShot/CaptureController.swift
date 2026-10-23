@@ -36,7 +36,10 @@ enum CaptureController {
 
     /// Interactive area capture (crosshair).
     static func captureArea(completion: @escaping (Shot?) -> Void) {
-        run(arguments: ["-i"], ext: "png", isVideo: false, completion: completion)
+        // A rectangular selection can span apps or desktop content. The native
+        // selector does not return an authoritative owning window, so record
+        // unknown explicitly rather than infer an app from screen coordinates.
+        run(arguments: ["-i"], ext: "png", isVideo: false, sourceAppName:"", completion: completion)
     }
 
     /// Interactive window capture — click a window to grab it.
@@ -99,14 +102,9 @@ enum CaptureController {
                     completion(nil) // user cancelled — nothing written
                     return
                 }
-                var capturedApp = sourceAppName
-                if !isVideo && capturedApp == nil {
-                    if let region = CaptureSourceContext.capturedRegion(from:dest) {
-                        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly,.excludeDesktopElements],kCGNullWindowID) as? [[String:Any]] ?? []
-                        capturedApp = CaptureSourceContext.applicationAtCenter(of:region,in:windows,ownPID:ProcessInfo.processInfo.processIdentifier)
-                    }
-                    capturedApp = capturedApp ?? "" // A new capture must not fall back to an AI app guess.
-                }
+                // Only an explicitly picked window establishes app ownership.
+                // Empty is intentional: it also prevents a later AI app guess.
+                let capturedApp = sourceAppName ?? ""
                 let savedURL = isVideo ? dest : CaptureSourceContext.storeCapture(at:dest,appName:capturedApp,
                     organizeByApp:ShortcutStore.organizeScreenshotsByApp)
                 CaptureSourceContext.write(capturedApp,to:savedURL)

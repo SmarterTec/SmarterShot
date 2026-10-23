@@ -31,15 +31,6 @@ import AppKit
     assert(CaptureSourceContext.read(from:contextURL) == "Blender")
     CaptureSourceContext.write("",to:contextURL)
     assert(CaptureSourceContext.read(from:contextURL) == "")
-    let windows:[[String:Any]] = [
-        [kCGWindowLayer as String:0,kCGWindowOwnerPID as String:Int32(-1),kCGWindowOwnerName as String:"Safari",
-         kCGWindowBounds as String:CGRect(x:0,y:0,width:100,height:100).dictionaryRepresentation],
-        [kCGWindowLayer as String:0,kCGWindowOwnerPID as String:Int32(-2),kCGWindowOwnerName as String:"Blender",
-         kCGWindowBounds as String:CGRect(x:100,y:0,width:100,height:100).dictionaryRepresentation]
-    ]
-    assert(CaptureSourceContext.applicationAtCenter(of:CGRect(x:120,y:20,width:40,height:40),in:windows,ownPID:42) == "Blender")
-    assert(CaptureSourceContext.applicationAtCenter(of:CGRect(x:20,y:20,width:40,height:40),in:windows,ownPID:42) == "Safari")
-    assert(CaptureSourceContext.applicationAtCenter(of:CGRect(x:20,y:20,width:40,height:40),in:windows,ownPID:-1) == nil)
     let storage = folder.appendingPathComponent("grouping-"+UUID().uuidString,isDirectory:true)
     try FileManager.default.createDirectory(at:storage,withIntermediateDirectories:true)
     let fresh = storage.appendingPathComponent("SmarterShot 2026-10-22 at 15.00.00.png")
@@ -56,7 +47,7 @@ import AppKit
     assert(collision != grouped && collision.lastPathComponent.contains("(2)"))
     try bytes.write(to:fresh)
     let unknown = CaptureSourceContext.storeCapture(at:fresh,appName:"",organizeByApp:true)
-    assert(unknown.deletingLastPathComponent().lastPathComponent == "Other")
+    assert(unknown == fresh, "Unknown app must stay in the screenshot root")
     try bytes.write(to:fresh)
     let safe = CaptureSourceContext.storeCapture(at:fresh,appName:"../../Safari",organizeByApp:true)
     assert(safe.deletingLastPathComponent() == storage.appendingPathComponent("Safari",isDirectory:true))

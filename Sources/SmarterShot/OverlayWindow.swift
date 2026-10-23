@@ -15,6 +15,7 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
     private var isLoading = false
     private let automaticallyRename: Bool
     private let analyzer: @MainActor (URL) async throws -> ScreenshotAISuggestion
+    private var resumeAnalysisAfterDrag = false
     private var analysisTask: Task<Void,Never>?
     private static var analysisTail: Task<Void,Never>?
     private static let cornerRadius: CGFloat = 20
@@ -90,11 +91,24 @@ final class OverlayWindow: NSObject, NSTextFieldDelegate {
         // Positioned explicitly after metadata sizing; do not also autoresize it.
         thumb.autoresizingMask = []
         // Hide the overlay while dragging so only the image moves with the cursor.
-        thumb.onDragWillBegin = { [weak self] in self?.card.isHidden = true }
+        thumb.onDragWillBegin = { [weak self] in
+            guard let self = self else { return }
+            self.card.isHidden = true
+            // The drag pasteboard already contains the saved URL. Freeze it
+            // until the receiver has read it; AI must not move that file.
+            self.resumeAnalysisAfterDrag = self.isLoading
+            if self.isLoading {
+                self.analysisTask?.cancel()
+                self.filenameLabel.stringValue = self.shot.url.lastPathComponent
+                self.descriptionLabel.stringValue = "Screenshot"
+                self.setLoading(false)
+            }
+        }
         thumb.onDragEnded = { [weak self] operation in
             guard let self = self else { return }
             if operation.isEmpty {
                 self.card.isHidden = false // cancelled — bring the thumbnail back
+                if self.resumeAnalysisAfterDrag { self.startAnalysis() }
             } else {
                 self.dismiss()       // dropped somewhere — it's been used
             }
