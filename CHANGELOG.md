@@ -5,6 +5,8 @@ All notable changes to SmarterShot. This project follows
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-01
+
 ### Changed
 - Native Liquid Glass editor background, with transparent scroll margins and a
   system material fallback. Image pixels/exports remain unchanged.
